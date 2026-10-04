@@ -61,7 +61,7 @@ export default {
         </div>
 
         <div class="hero__bar"><i style="width:${s.progress.percent}%"></i></div>
-        <p class="hero__hint">总进度 ${s.progress.percent}%　·　背诵 ${s.reciteKnown}/${s.shortCount}</p>
+        <p class="hero__hint">总进度 ${s.progress.percent}%</p>
 
         <button class="btn btn--block" id="quickStart">
           ${s.progress.answered ? "继续刷题" : "开始刷题"}

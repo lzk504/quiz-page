@@ -1,7 +1,7 @@
 /** 应用入口：初始化存储 → 加载题库 → 注册视图 → 启动路由 */
 
 import { loadQuestions, on, getMeta, getQuestions } from "./state.js";
-import { initStorage, getStore, isPersistent } from "./storage.js";
+import { initStorage, getStore, isPersistent, setValidIds } from "./storage.js";
 import { register, startRouter } from "./router.js";
 import { computeStats } from "./stats.js";
 import { esc } from "./utils.js";
@@ -86,16 +86,11 @@ function renderLoadError(app, err) {
 async function boot() {
   const app = document.getElementById("app");
 
-  const persistent = initStorage();
   register("home", home);
   register("practice", practice);
   register("wrongbook", wrongbook);
   register("stats", stats);
   register("settings", settings);
-
-  if (!persistent) {
-    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），本次答题进度不会被保存。");
-  }
 
   try {
     await loadQuestions();
@@ -103,6 +98,14 @@ async function boot() {
     console.error("[boot] 题库加载失败", err);
     renderLoadError(app, err);
     return;
+  }
+
+  // 先注入题库 id 集，再初始化存储：v1→v2 迁移需要它剔除已删除题的记录
+  setValidIds(getQuestions().map((q) => q.id));
+  const persistent = initStorage();
+
+  if (!persistent) {
+    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），本次答题进度不会被保存。");
   }
 
   // 数据变化时同步顶栏与角标

@@ -15,9 +15,7 @@ export const DOMAIN_CLASS = {
 export const TYPE_CLASS = {
   single: "tag--general",
   multiple: "tag--general",
-  fill: "tag--general",
   judge: "tag--general",
-  short: "tag--general",
 };
 
 export function domainTag(domain) {
@@ -50,9 +48,9 @@ export function emptyState({ icon = "📭", title = "暂无内容", desc = "", a
   </div>`;
 }
 
-/** 题型图标 emoji（用于列表前缀，可选） */
+/** 题型图标（用于列表前缀，可选） */
 export const TYPE_ICON = {
-  single: "①", multiple: "②", fill: "③", judge: "④", short: "⑤",
+  single: "①", multiple: "②", judge: "③",
 };
 
 /** 全局 toast */

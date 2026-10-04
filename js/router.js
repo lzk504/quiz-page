@@ -1,7 +1,7 @@
 /**
  * 极简 hash 路由。
  *   #/home
- *   #/practice?domain=health&type=fill
+ *   #/practice?domain=health&type=single
  *   #/practice?mode=wrong
  *   #/wrongbook  #/stats  #/settings
  */

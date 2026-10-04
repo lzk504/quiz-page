@@ -1,4 +1,4 @@
-/** 统计页：整体正确率 + 分领域/分题型 + 背诵进度 */
+/** 统计页：整体正确率 + 分领域/分题型 */
 
 import { getQuestions } from "../state.js";
 import { getStore } from "../storage.js";
@@ -36,7 +36,7 @@ export default {
       return;
     }
 
-    if (!s.answered && !s.reciteTouched) {
+    if (!s.answered) {
       root.innerHTML = emptyState({
         icon: "📊",
         title: "还没有答题记录",
@@ -48,12 +48,11 @@ export default {
     }
 
     const totalPct = s.progress.percent;
-    const objPct = s.objectiveProgress.percent;
 
     root.innerHTML = `
       <div class="stat-grid" style="margin-bottom:14px">
-        <div class="stat stat--rate"><b>${s.answered ? s.rate + "%" : "—"}</b><span>正确率</span></div>
-        <div class="stat"><b>${s.answered}</b><span>已答客观题</span></div>
+        <div class="stat stat--rate"><b>${s.rate}%</b><span>正确率</span></div>
+        <div class="stat"><b>${s.answered}</b><span>已答题数</span></div>
         <div class="stat"><b style="color:${s.wrongCount ? "var(--bad)" : "inherit"}">${s.wrongCount}</b><span>错题在册</span></div>
       </div>
 
@@ -61,24 +60,10 @@ export default {
         <h2 class="card__title">学习进度</h2>
         <div class="rate-row">
           <div class="rate-row__head">
-            <span>总进度</span>
+            <span>总进度（单选/多选/判断）</span>
             <span>${s.progress.answered}/${s.progress.total}　<b>${totalPct}%</b></span>
           </div>
           ${bar(totalPct, "bar--blue")}
-        </div>
-        <div class="rate-row">
-          <div class="rate-row__head">
-            <span>客观题（单选/多选/填空/判断）</span>
-            <span>${s.objectiveProgress.answered}/${s.objectiveProgress.total}　<b>${objPct}%</b></span>
-          </div>
-          ${bar(objPct, "bar--green")}
-        </div>
-        <div class="rate-row">
-          <div class="rate-row__head">
-            <span>简答题背诵</span>
-            <span>已记住 ${s.reciteKnown}/${s.shortCount}　<b>${s.reciteRate}%</b></span>
-          </div>
-          ${bar(s.reciteRate, "bar--amber")}
         </div>
       </section>
 
@@ -95,9 +80,8 @@ export default {
       <section class="card">
         <h2 class="card__title">口径说明</h2>
         <div class="about">
-          <p>· <b>正确率</b> = 最近一次答对的题数 ÷ 已作答的客观题数。同一题重复作答只按最后一次计入。</p>
-          <p>· <b>简答题</b>为背诵自评，不计入正确率，单独统计「已记住」进度。</p>
-          <p>· <b>总进度</b> = （已作答客观题 + 已自评简答题）÷ 题库总题数。</p>
+          <p>· <b>正确率</b> = 最近一次答对的题数 ÷ 已作答题数。同一题重复作答只按最后一次计入。</p>
+          <p>· <b>总进度</b> = 已作答题数 ÷ 题库总题数。</p>
           <p>· 所有记录保存在本机浏览器中，清除浏览器数据会丢失，可在设置页导出备份。</p>
         </div>
         <div class="actions" style="margin-top:14px">

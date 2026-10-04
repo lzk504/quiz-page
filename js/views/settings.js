@@ -17,7 +17,6 @@ export default {
     const persistent = isPersistent();
 
     const recordCount = Object.keys(store.records).length;
-    const reciteCount = Object.keys(store.recite).length;
 
     root.innerHTML = `
       <section class="card">
@@ -26,7 +25,7 @@ export default {
         <div class="setting-row">
           <div class="setting-row__text">
             <b>导出备份</b>
-            <span>下载 JSON 文件，包含答题记录、错题本与背诵进度。换设备或清缓存前建议导出一份。</span>
+            <span>下载 JSON 文件，包含答题记录与错题本。换设备或清缓存前建议导出一份。</span>
           </div>
           <button class="btn btn--sm btn--primary" id="btnExport">导出</button>
         </div>
@@ -34,7 +33,7 @@ export default {
         <div class="setting-row">
           <div class="setting-row__text">
             <b>导入备份</b>
-            <span>从之前导出的 JSON 文件恢复。导入前会自动校验格式，失败不会改动现有数据。</span>
+            <span>从之前导出的 JSON 文件恢复（兼容 v1 旧备份，会自动迁移）。导入前会自动校验格式，失败不会改动现有数据。</span>
           </div>
           <button class="btn btn--sm" id="btnImport">导入</button>
           <input type="file" id="fileInput" accept="application/json,.json" hidden>
@@ -43,7 +42,7 @@ export default {
         <div class="setting-row">
           <div class="setting-row__text">
             <b>清空所有数据</b>
-            <span>删除本机保存的全部答题记录、错题本与背诵进度，不可撤销。</span>
+            <span>删除本机保存的全部答题记录与错题本，不可撤销。</span>
           </div>
           <button class="btn btn--sm btn--danger" id="btnClear">清空</button>
         </div>
@@ -53,7 +52,7 @@ export default {
         <h2 class="card__title">当前数据 <small>${persistent ? "已保存到本机" : "未持久化"}</small></h2>
         <div class="about">
           <p>· 存储位置：<code>localStorage["${esc(STORE_KEY)}"]</code>${persistent ? "" : "（当前不可用，仅本次会话有效）"}</p>
-          <p>· 答题记录 <b>${recordCount}</b> 条　·　背诵自评 <b>${reciteCount}</b> 条　·　错题在册 <b>${s.wrongCount}</b> 题</p>
+          <p>· 答题记录 <b>${recordCount}</b> 条　·　错题在册 <b>${s.wrongCount}</b> 题</p>
           <p>· 最近更新：${esc(fmtTime(store.updatedAt))}</p>
         </div>
       </section>
@@ -102,7 +101,8 @@ export default {
       const sum = check.summary;
       const mode = window.confirm(
         `备份校验通过。\n\n` +
-        `包含：答题记录 ${sum.records} 条 / 错题 ${sum.wrongbook} 条 / 背诵 ${sum.recite} 条\n\n` +
+        `包含：答题记录 ${sum.records} 条 / 错题 ${sum.wrongbook} 条` +
+        (sum.legacyRecite ? `\n（旧版背诵记录 ${sum.legacyRecite} 条将不再使用）` : "") + `\n\n` +
         `点「确定」= 覆盖当前数据\n点「取消」= 与当前数据合并（同一题保留时间较新的记录）`
       );
       applyImport(check.store, mode ? "replace" : "merge");
@@ -112,11 +112,11 @@ export default {
 
     /* ---------- 清空 ---------- */
     root.querySelector("#btnClear")?.addEventListener("click", () => {
-      if (!recordCount && !reciteCount && !s.wrongCount) {
+      if (!recordCount && !s.wrongCount) {
         toast("当前没有需要清空的数据", "info");
         return;
       }
-      if (!window.confirm("确定要清空全部答题记录、错题本与背诵进度吗？此操作不可撤销。")) return;
+      if (!window.confirm("确定要清空全部答题记录与错题本吗？此操作不可撤销。")) return;
       if (!window.confirm("再次确认：清空后无法恢复，确定继续？")) return;
       clearAll();
       toast("已清空所有数据", "ok");

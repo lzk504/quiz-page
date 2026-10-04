@@ -58,8 +58,7 @@ const FALLBACK_DOMAIN_LABELS = {
   science: "科学", art: "艺术", general: "综合",
 };
 const FALLBACK_TYPE_LABELS = {
-  single: "单选题", multiple: "多选题", fill: "填空题",
-  judge: "判断题", short: "简答题",
+  single: "单选题", multiple: "多选题", judge: "判断题",
 };
 
 export const domainLabels = () => ({ ...FALLBACK_DOMAIN_LABELS, ...(state.meta?.domainLabels ?? {}) });
