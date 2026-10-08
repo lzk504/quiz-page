@@ -49,11 +49,14 @@ js/
 worker/                        Cloudflare Worker 后端（纯 JS ES Module，零 npm 依赖）
   index.js                     fetch 入口：/api/* → routes，其余 → 静态资产
   auth.js                      JWT(HS256) 签发/校验、PBKDF2 密码哈希、邀请码生成
-  routes.js                    /api 路由：register/login/me/store/invites + 鉴权中间件
+  store.js                     可插拔存储层（KvStore 实现 + createStore 工厂，预留 R2）
+  router.js                    轻量路由 + 中间件链（requireAuth/requireAdmin + 响应助手）
+  ratelimit.js                 内置限流（内存固定窗口，register/login 防爆破）
+  routes.js                    9 个业务 handler + 路由表装配
 data/questions.json            题库（唯一数据文件，静态资产）
 scripts/
   dev-server.mjs               本地开发服务器（内存 mock KV + 静态资产 + /api 路由）
-  api-test.mjs                 API 冒烟测试（36 断言，直接调 handleApi，无需起服务）
+  api-test.mjs                 API 冒烟测试（42 断言，直接调 handleApi，无需起服务）
   e2e-check.js                 端到端浏览器测试（Puppeteer，58 断言，需 dev-server）
   extract_questions.py         从手册 HTML 提取题库 v1（一次性，不部署）
   rebuild_questions_v2.py      题库 v1→v2 重建（幂等）
@@ -149,8 +152,9 @@ npm run dev                                  # http://127.0.0.1:8123
 | `POST /api/invites` | Bearer+admin | 生成一次性邀请码（16 字符） |
 | `GET /api/invites` | Bearer+admin | 邀请码列表 |
 
-错误格式：`{error: <code>, message: <zh>}`；状态码 400/401/403/409/500。
+错误格式：`{error: <code>, message: <zh>}`；状态码 400/401/403/404/409/429/500。
 KV Schema：`users`（用户表）/ `user:<username>:auth`（凭证）/ `invite:<code>`（邀请码）/ `store:<username>`（刷题数据，与前端 v2 schema 同形）。
+后端通过 `worker/store.js` 的可插拔存储层访问 KV，key 命名是公开契约（勿改）；将来加 R2 后端只需实现 `R2Store` 并在 `createStore` 加分支。
 
 ## 维护题库
 
@@ -192,7 +196,7 @@ false
 ```bash
 python scripts/validate_questions.py    # 题库结构硬断言（失败返回非零退出码）
 
-node scripts/api-test.mjs               # API 冒烟测试（无需起服务，36 断言）
+node scripts/api-test.mjs               # API 冒烟测试（无需起服务，42 断言）
 npm run dev &                           # 起本地 dev-server（8123）
 node scripts/e2e-check.js               # 端到端（58 断言，含注册/邀请码/隔离/迁移）
 ```
@@ -211,11 +215,16 @@ e2e 覆盖 58 项断言：未登录重定向、首用户注册（自动 admin）
   JWT 用 HS256 签名，secret 由 `JWT_SECRET` 提供（30+ 字符）
 - 浏览器仅保存 JWT token（`quizapp.token.v1`）；本地旧版 `quizapp.data.v1` 数据在
   首次登录后自动迁移上云并清源
-- 注册/登录建议在 Cloudflare Dashboard 配置 Rate Limiting Rules 防爆破
+- 注册/登录内置限流（`worker/ratelimit.js`，10 次/分钟/IP，429），防爆破；
+  纯内存实现避免消耗 KV 免费写额度，分布式攻击建议叠加 Cloudflare Dashboard 的 Rate Limiting Rules
 - KV 为最终一致存储，单用户多设备极端并发写可能短暂覆盖，乐观锁 + 合并将影响降到最低
 
 ## 更新日志
 
+- v4（2026-10-08）：对齐 nodewarden 架构思想——① 可插拔存储层（`worker/store.js`，
+  业务只依赖逻辑接口，预留 R2 后端）② 路由中间件化（`worker/router.js`，注册式路由表 +
+  requireAuth/requireAdmin 中间件，与原 if-else 零行为差异）③ 内置限流（`worker/ratelimit.js`，
+  register/login 10 次/分钟/IP 防爆破）。API 冒烟测试增至 42 断言，e2e 58 断言不变。
 - v3（2026-10-08）：存储迁移——localStorage 迁移至 Cloudflare Workers KV（参考 nodewarden
   模式），新增 JWT 用户体系（首用户自动管理员、邀请码注册）、多设备云同步（乐观锁 + 合并）、
   登录守卫与登录/注册视图；Worker 后端零 npm 依赖；本地 dev-server（mock KV）+ API 冒烟 +

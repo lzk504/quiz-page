@@ -3,7 +3,7 @@
  * 运行时生成随机用户名/密码/邀请码，命令行与输出均不含真实凭据。
  *   node scripts/api-test.mjs
  */
-import { handleApi } from "../worker/routes.js";
+import { handleApi, _resetRateLimitForTest } from "../worker/routes.js";
 
 const JWT_SECRET = "test-secret-30-chars-minimum-aaaaaaaaaaaaa";
 const PORT = 0; // 不监听端口，直接调用 handleApi
@@ -34,10 +34,10 @@ function ok(name, cond, detail = "") {
   else { failed++; console.log(`  ✗ ${name}  ${detail}`); }
 }
 
-async function call(method, path, { body, token } = {}) {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const init = { method, headers };
+async function call(method, path, { body, token, headers = {} } = {}) {
+  const h = new Headers({ "content-type": "application/json", ...headers });
+  if (token) h.set("Authorization", `Bearer ${token}`);
+  const init = { method, headers: h };
   if (body !== undefined) init.body = JSON.stringify(body);
   const req = new Request(`http://x${path}`, init);
   const res = await handleApi(req, env, {});
@@ -164,6 +164,29 @@ r = await call("GET", "/api/store", { token: adminToken });
 ok("A store 含 ADMIN 不含 USERB", !!r.data?.store?.records?.ADMIN && !r.data?.store?.records?.USERB);
 r = await call("GET", "/api/store", { token: userBToken });
 ok("B store 含 USERB 不含 ADMIN", !!r.data?.store?.records?.USERB && !r.data?.store?.records?.ADMIN);
+
+console.log("\n=== [19] 限流（10 次/分钟/IP，第 11 次 429）===");
+_resetRateLimitForTest();
+const rlIp = "203.0.113.77";
+let lastStatus = 0;
+for (let i = 1; i <= 10; i++) {
+  lastStatus = (await call("POST", "/api/login", {
+    body: { username: adminUser, password: "wrongPass99" },
+    headers: { "CF-Connecting-IP": rlIp },
+  })).status;
+}
+ok("第 10 次仍未 429", lastStatus !== 429, `实际 ${lastStatus}`);
+r = await call("POST", "/api/login", {
+  body: { username: adminUser, password: "wrongPass99" },
+  headers: { "CF-Connecting-IP": rlIp },
+});
+ok("第 11 次 429", r.status === 429 && r.data?.error === "rate_limited", `实际 ${r.status} ${JSON.stringify(r.data)}`);
+// 不同 IP 不受影响（独立桶）
+r = await call("POST", "/api/login", {
+  body: { username: adminUser, password: "wrongPass99" },
+  headers: { "CF-Connecting-IP": "198.51.100.9" },
+});
+ok("不同 IP 不受限", r.status === 401, `实际 ${r.status}`);
 
 console.log(`\n========================================================`);
 console.log(`通过 ${passed}　失败 ${failed}`);

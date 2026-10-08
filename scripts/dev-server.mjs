@@ -11,7 +11,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleApi } from "../worker/routes.js";
+import { handleApi, _resetRateLimitForTest } from "../worker/routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -146,6 +146,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === "/__dev/kv-reset") {
     kv._reset();
+    _resetRateLimitForTest();
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
     return;
