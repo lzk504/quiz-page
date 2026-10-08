@@ -35,9 +35,11 @@ export default {
           <label class="field" id="inviteField" hidden>
             <span class="field__label">邀请码</span>
             <input class="field__input" name="inviteCode" type="text"
-                   autocomplete="off" placeholder="首位用户可留空">
-            <span class="field__hint">系统首个注册用户自动成为管理员，无需邀请码；之后注册需向管理员索取。</span>
+                   autocomplete="off" placeholder="请输入邀请码">
+            <span class="field__hint">注册需邀请码，请联系管理员获取。</span>
           </label>
+
+          <p class="field__hint first-user-hint" id="firstUserHint" hidden>首位注册用户将成为系统管理员，无需邀请码。</p>
 
           <div class="actions">
             <button class="btn btn--primary btn--block" type="submit" id="authSubmit">登录</button>
@@ -55,20 +57,34 @@ export default {
     `;
 
     let tab = "login";
+    let initialized = false;   // 系统是否已有用户（首用户场景隐藏邀请码字段）
     const submitBtn = root.querySelector("#authSubmit");
     const passwordInput = root.querySelector('input[name="password"]');
     const inviteField = root.querySelector("#inviteField");
+    const firstUserHint = root.querySelector("#firstUserHint");
+
+    function applyTabUI() {
+      submitBtn.textContent = tab === "login" ? "登录" : "注册并登录";
+      passwordInput.autocomplete = tab === "login" ? "current-password" : "new-password";
+      inviteField.hidden = !(initialized && tab === "register");
+      firstUserHint.hidden = !(tab === "register" && !initialized);
+    }
+    applyTabUI();
 
     // tab 切换：直接改 DOM，不 re-render（避免丢失输入与重置 tab 状态）
     root.querySelectorAll(".auth__tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         tab = btn.dataset.tab;
         root.querySelectorAll(".auth__tab").forEach((b) => b.classList.toggle("is-on", b === btn));
-        submitBtn.textContent = tab === "login" ? "登录" : "注册并登录";
-        passwordInput.autocomplete = tab === "login" ? "current-password" : "new-password";
-        inviteField.hidden = tab !== "register";
+        applyTabUI();
       });
     });
+
+    // 探测系统初始化状态：未初始化时隐藏邀请码字段，提示"首位将成为管理员"
+    fetch("/api/bootstrap")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { initialized = !!(d && d.initialized); applyTabUI(); })
+      .catch(() => {});
 
     const form = root.querySelector("#authForm");
     const note = root.querySelector("#authNote");

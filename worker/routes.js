@@ -59,6 +59,10 @@ export async function handleApi(request, env, ctx) {
     // 公开端点
     if (path === "/api/register" && method === "POST") return await register(request, env);
     if (path === "/api/login" && method === "POST") return await login(request, env);
+    if (path === "/api/bootstrap" && method === "GET") {
+      const users = await getUsers(env);
+      return json({ initialized: users.count > 0 });
+    }
 
     // 鉴权端点
     const user = await requireAuth(request, env);

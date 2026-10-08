@@ -56,11 +56,17 @@ const userB = `user_${rnd()}`;
 const userBPw = `Pass${rnd()}2`;
 
 console.log("=== [1] 注册首用户（应 201, role=admin）===");
-let r = await call("POST", "/api/register", { body: { username: adminUser, password: adminPw } });
+// 注册前：系统未初始化
+let r = await call("GET", "/api/bootstrap");
+ok("注册前 initialized=false", r.data?.initialized === false, `实际 ${JSON.stringify(r.data)}`);
+r = await call("POST", "/api/register", { body: { username: adminUser, password: adminPw } });
 ok("状态 201", r.status === 201, `实际 ${r.status} ${JSON.stringify(r.data)}`);
 ok("返回 role=admin", r.data?.user?.role === "admin");
 ok("返回 token", !!r.data?.token);
 const adminToken = r.data?.token;
+// 注册后：系统已初始化
+r = await call("GET", "/api/bootstrap");
+ok("注册后 initialized=true", r.data?.initialized === true, `实际 ${JSON.stringify(r.data)}`);
 
 console.log("\n=== [2] 重复用户名（应 409）===");
 r = await call("POST", "/api/register", { body: { username: adminUser, password: adminPw } });

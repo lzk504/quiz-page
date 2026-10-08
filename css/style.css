@@ -612,6 +612,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .opt:focus-visible, .judge__btn:focus-visible { outline-offset: 0; }
 
+/* hidden 属性兜底：带 display 的作者样式（如 .field{display:flex}）会覆盖 UA 的 [hidden] 规则 */
+[hidden] { display: none !important; }
+
 /* ---------- 登录 / 注册 ---------- */
 .app--auth {
   padding-top: 8px;
@@ -654,6 +657,11 @@ body:has(.app--auth) .tabbar { display: none; }
 .btn--block { width: 100%; box-sizing: border-box; }
 .auth__note { font-size: 13px; color: var(--text-3); min-height: 1.2em; margin: 0; }
 .auth__note--err { color: var(--bad); }
+.first-user-hint {
+  margin: -4px 0 0; padding: 10px 12px;
+  background: var(--primary-100); color: var(--primary);
+  border-radius: var(--r-md); font-size: 13px; line-height: 1.5;
+}
 
 /* ---------- 邀请码列表 ---------- */
 .invite-list { display: flex; flex-direction: column; gap: 8px; }
