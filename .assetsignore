@@ -1,0 +1,29 @@
+# 静态资产排除清单（Workers Assets）。仓库根目录即资产目录，必须排除以下文件避免泄露。
+
+# Worker 源码与部署配置
+worker/
+wrangler.toml
+wrangler.jsonc
+package.json
+package-lock.json
+.dev.vars
+
+# 脚本目录与测试产物（不部署到线上）
+scripts/
+
+# 题库原始素材（不部署；前端只读 data/questions.json）
+3-6岁儿童学习与发展指南_考点精编与刷题手册.html
+3-6岁儿童学习与发展指南_考点精编与刷题手册.docx
+MinerU_markdown_3-6岁儿童学习与发展指南_2106543432170807296.md
+*.docx
+
+# Agent / 编辑器 / Git 元数据
+.workbuddy/
+.vscode/
+.idea/
+.git/
+.gitignore
+.gitattributes
+
+# 文档（README 等不部署到线上；如需部署改用 *.md 之外的具体文件名，注意不能用 *.html 会误杀 index.html）
+*.md

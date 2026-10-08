@@ -1,6 +1,8 @@
 # ---------- 秘密与凭据（严禁入库）----------
 .env
 .env.*
+.env.local
+.dev.vars
 !.env.example
 *.pem
 *.key

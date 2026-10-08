@@ -1,14 +1,20 @@
 /**
  * 极简 hash 路由。
- *   #/home
+ *   #/home   #/login
  *   #/practice?domain=health&type=single
  *   #/practice?mode=wrong
  *   #/wrongbook  #/stats  #/settings
+ *
+ * 登录守卫：未登录访问非 login 视图 → 重定向 #/login；已登录访问 #/login → #/home。
  */
+
+import { isLoggedIn } from "./auth.js";
 
 const views = new Map();
 let current = null;
 let onAfter = null;
+
+const PUBLIC_VIEWS = new Set(["login"]);
 
 export function register(name, view) {
   views.set(name, view);
@@ -39,6 +45,18 @@ export function back(fallback = "home") {
 
 async function render() {
   const { view, params } = parseHash();
+
+  // 登录守卫
+  const logged = isLoggedIn();
+  if (!logged && !PUBLIC_VIEWS.has(view)) {
+    location.replace("#/login");
+    return;
+  }
+  if (logged && view === "login") {
+    location.replace("#/home");
+    return;
+  }
+
   const target = views.get(view) ?? views.get(DEFAULT_ROUTE);
 
   const app = document.getElementById("app");
@@ -52,6 +70,8 @@ async function render() {
   current = target;
   app.innerHTML = "";
   app.classList.toggle("app--flush", view === "practice");
+  // 登录页隐藏底部导航与顶栏统计
+  app.classList.toggle("app--auth", view === "login");
   window.scrollTo({ top: 0, behavior: "instant" in document.documentElement.style ? "instant" : "auto" });
 
   try {
@@ -68,7 +88,7 @@ async function render() {
 export function startRouter(afterRender) {
   onAfter = afterRender;
   window.addEventListener("hashchange", render);
-  if (!location.hash) location.replace("#/" + DEFAULT_ROUTE);
+  if (!location.hash) location.replace("#/" + (isLoggedIn() ? DEFAULT_ROUTE : "login"));
   render();
 }
 

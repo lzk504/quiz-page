@@ -1,7 +1,8 @@
 /** 应用入口：初始化存储 → 加载题库 → 注册视图 → 启动路由 */
 
 import { loadQuestions, on, getMeta, getQuestions } from "./state.js";
-import { initStorage, getStore, isPersistent, setValidIds } from "./storage.js";
+import { initStorage, getStore, isPersistent, setValidIds, flushStore, getSyncStatus } from "./storage.js";
+import { initAuth, isLoggedIn, fetchMe, getCurrentUser, clearToken } from "./auth.js";
 import { register, startRouter } from "./router.js";
 import { computeStats } from "./stats.js";
 import { esc } from "./utils.js";
@@ -11,6 +12,7 @@ import practice from "./views/practice.js";
 import wrongbook from "./views/wrongbook.js";
 import stats from "./views/stats.js";
 import settings from "./views/settings.js";
+import login from "./views/login.js";
 
 const TABS = ["home", "practice", "wrongbook", "stats", "settings"];
 const TAB_OF_ROUTE = { home: "home", practice: "practice", wrongbook: "wrongbook", stats: "stats", settings: "settings" };
@@ -18,6 +20,16 @@ const TAB_OF_ROUTE = { home: "home", practice: "practice", wrongbook: "wrongbook
 /* ---------------- 顶栏 / 标签栏同步 ---------------- */
 
 function syncChrome(route) {
+  // 登录页不显示统计
+  if (route.view === "login" || !isLoggedIn()) {
+    const node = document.getElementById("topMeta");
+    if (node) node.textContent = "";
+    const badge = document.getElementById("tabBadge");
+    if (badge) badge.hidden = true;
+    document.querySelectorAll(".tab").forEach((n) => n.classList.toggle("is-active", false));
+    return;
+  }
+
   // 底部导航高亮
   const tab = TAB_OF_ROUTE[route.view] ?? "home";
   document.querySelectorAll(".tab").forEach((node) => {
@@ -91,6 +103,7 @@ async function boot() {
   register("wrongbook", wrongbook);
   register("stats", stats);
   register("settings", settings);
+  register("login", login);
 
   try {
     await loadQuestions();
@@ -102,18 +115,43 @@ async function boot() {
 
   // 先注入题库 id 集，再初始化存储：v1→v2 迁移需要它剔除已删除题的记录
   setValidIds(getQuestions().map((q) => q.id));
-  const persistent = initStorage();
+
+  // 鉴权：读 token → 校验 → 已登录则拉云端 store
+  initAuth();
+  let persistent = true;
+  if (isLoggedIn()) {
+    const me = await fetchMe();
+    if (!me) {
+      // token 失效：清掉，让路由守卫把用户送到登录页
+      clearToken();
+    } else {
+      persistent = await initStorage();
+    }
+  }
 
   if (!persistent) {
-    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），本次答题进度不会被保存。");
+    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），登录态无法保持，每次打开需重新登录。");
   }
 
   // 数据变化时同步顶栏与角标
   on("store-changed", () => syncChrome({ view: location.hash.replace(/^#\/?/, "").split("?")[0] || "home" }));
   on("storage-broken", () => {
     if (isPersistent()) return;
-    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），本次答题进度不会被保存。");
+    showBanner("本地存储不可用（可能是隐私模式或浏览器限制），登录态无法保持，每次打开需重新登录。");
   });
+  on("sync-status", (s) => {
+    if (s?.status === "error" && s?.error) {
+      showBanner(`数据同步失败：${s.error}（已在本地保存，将在网络恢复后重试）`, "warn");
+    } else {
+      hideBanner();
+    }
+  });
+
+  // 页面隐藏 / 关闭前把待发数据 flush 到云端
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushStore();
+  });
+  window.addEventListener("beforeunload", () => flushStore());
 
   const meta = getMeta();
   if (meta?.title) document.title = meta.title;

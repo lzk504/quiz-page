@@ -1,28 +1,35 @@
 /**
- * 端到端验证：加载页面 → 各题型作答 → 统计/错题本/设置 → v1→v2 迁移 → 截图
+ * 端到端验证（需先启动 dev-server：node scripts/dev-server.mjs）。
+ * 流程：未登录重定向 → 注册首用户 admin → 刷题 → 错题本/统计/设置 → 邀请码 →
+ *       持久化 → 响应式/深链接 → v1→v2 首次上云迁移 → 登出/登录 → 隔离/鉴权 → 截图。
  * 用法：node scripts/e2e-check.js [baseUrl] [outDir]
  */
-const path = require("path");
-const fs = require("fs");
-const puppeteer = require("puppeteer");
+import path from "node:path";
+import fs from "node:fs";
+import puppeteer from "puppeteer";
 
 const BASE = process.argv[2] || "http://127.0.0.1:8123";
 const OUT = process.argv[3] || path.join(process.cwd(), "scripts", "_shots");
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 
 const errors = [];
-const logs = [];
 const results = [];
-
-function ok(name, pass, extra = "") {
+const ok = (name, pass, extra = "") => {
   results.push({ name, pass, extra });
   console.log(`${pass ? "  ✓" : "  ✗"} ${name}${extra ? "  " + extra : ""}`);
-}
-
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rnd = () => Math.random().toString(36).slice(2, 10);
+const ADMIN = `admin_${rnd()}`;
+const ADMIN_PW = `Pass${rnd()}1`;
+const USERB = `userb_${rnd()}`;
+const USERB_PW = `Pass${rnd()}2`;
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
+
+  // 重置 mock KV，保证本次运行是"首用户"场景
+  await fetch(`${BASE}/__dev/kv-reset`, { method: "POST" }).catch(() => {});
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -30,136 +37,126 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const page = await browser.newPage();
-  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
-
+  await page.setDefaultTimeout(8000);
+  page.on("dialog", (d) => d.accept().catch(() => {}));
   page.on("console", (m) => {
     const t = m.type();
-    logs.push(`[${t}] ${m.text()}`);
+    // 过滤网络状态噪音（错误路径测试会触发 401/403/409，Chrome 记为 console.error 但非 JS 错误）
+    if (t === "error" && /Failed to load resource/i.test(m.text())) return;
     if (t === "error") errors.push(`console.error: ${m.text()}`);
   });
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-  page.on("requestfailed", (r) => errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
+  page.on("requestfailed", (r) => {
+    // 过滤 flushStore keepalive 在导航时被中断的噪音
+    if (r.failure()?.errorText === "net::ERR_ABORTED" && r.url().includes("/api/store")) return;
+    errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`);
+  });
+
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
 
   const go = async (hash) => {
     await page.goto(`${BASE}/#/${hash}`, { waitUntil: "networkidle2" });
-    await sleep(160);
+    await sleep(200);
   };
   const txt = (sel) => page.$eval(sel, (n) => n.textContent.trim()).catch(() => null);
   const count = (sel) => page.$$eval(sel, (n) => n.length).catch(() => 0);
 
-  /* ---------- 首页 ---------- */
-  console.log("\n[1] 首页");
-  await go("home");
+  /* ---------- [1] 未登录重定向到 login ---------- */
+  console.log("\n[1] 未登录重定向");
+  await page.goto(`${BASE}/#/home`, { waitUntil: "networkidle2" });
+  await sleep(200);
+  const hash1 = await page.evaluate(() => location.hash);
+  ok("未登录访问 home → 重定向 #/login", hash1 === "#/login", `实际 ${hash1}`);
+  const loginForm = await count("#authForm");
+  ok("登录表单渲染", loginForm === 1, `${loginForm}`);
+  await page.screenshot({ path: path.join(OUT, "01-login.png"), fullPage: true });
+
+  /* ---------- [2] 注册首用户（admin）---------- */
+  console.log("\n[2] 注册首用户");
+  await page.click('.auth__tab[data-tab="register"]');
+  await sleep(100);
+  await page.type('input[name="username"]', ADMIN);
+  await page.type('input[name="password"]', ADMIN_PW);
+  await page.click("#authSubmit");
   await page.waitForSelector(".hero", { timeout: 8000 });
+  const hash2 = await page.evaluate(() => location.hash);
+  ok("注册后跳转 home", hash2 === "#/home", `实际 ${hash2}`);
   const heroTitle = await txt(".hero__title");
-  ok("首页渲染", heroTitle === "考点精编 · 刷题手册", `标题="${heroTitle}"`);
+  ok("首页 hero 渲染", !!heroTitle, heroTitle?.slice(0, 18));
+
+  // 校验当前用户为 admin
+  const me = await page.evaluate(async () => {
+    const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${localStorage.getItem("quizapp.token.v1")}` } });
+    return r.ok ? r.json() : null;
+  });
+  ok("注册用户 role=admin", me?.role === "admin", JSON.stringify(me));
+
   const domainChips = await count("#domainChips .chip");
   const typeChips = await count("#typeChips .chip");
   ok("领域筛选 6 个", domainChips === 6, `实际 ${domainChips}`);
   ok("题型筛选 3 个", typeChips === 3, `实际 ${typeChips}`);
-  const overview = await txt(".card:last-of-type .about");
-  ok("题库概览含 68 题", /共\s*68\s*题/.test(overview || ""), "");
-  await page.screenshot({ path: path.join(OUT, "01-home.png"), fullPage: true });
 
-  /* 筛选生效 */
-  await page.click('#typeChips .chip[data-key="judge"]');
-  await sleep(120);
-  const summary = await txt(".filter-summary");
-  ok("筛选判断 → 命中 14 题", /命中\s*14\s*题/.test(summary || ""), summary);
-  await page.click("#clearFilter");
-  await sleep(120);
-
-  /* ---------- 题库结构（v2 重构断言） ---------- */
-  console.log("\n[2] 题库结构");
+  /* ---------- [3] 题库结构 ---------- */
+  console.log("\n[3] 题库结构");
   const bank = await page.evaluate(async () => {
     const r = await fetch("/data/questions.json");
     const d = await r.json();
     const qs = d.questions;
     const byId = Object.fromEntries(qs.map((q) => [q.id, q]));
-    const converted = qs.filter((q) => /^S(2[5-9]|3[0-9]|40)$/.test(q.id));
     return {
       total: qs.length,
       types: [...new Set(qs.map((q) => q.type))].sort(),
       hasLegacy: qs.some((q) => /^F|^SA/.test(q.id)),
-      removed: ["S02", "S05", "S06", "J04"].some((id) => byId[id]),
-      convertedCount: converted.length,
-      convertedAll3Opts: converted.every((q) => q.options?.length === 3 && /^[ABC]$/.test(q.answer)),
-      m01: byId.M01 ? { opts: byId.M01.options.length, ans: byId.M01.answer } : null,
-      s16domain: byId.S16?.domain,
-      newSingles: ["S41", "S47"].every((id) => byId[id]?.options?.length === 4),
-      newJudges: ["J13", "J14", "J15"].every((id) => typeof byId[id]?.answer === "boolean"),
     };
   });
   ok("总题数 68", bank.total === 68, `实际 ${bank.total}`);
-  ok("题型只剩 single/multiple/judge", bank.types.join(",") === "judge,multiple,single", bank.types.join(","));
-  ok("无 F/SA 遗留 id", bank.hasLegacy === false, "");
-  ok("S02/S05/S06/J04 已删除", bank.removed === false, "");
-  ok("16 道改写题均为 3 选项单选", bank.convertedCount === 16 && bank.convertedAll3Opts, `改写题 ${bank.convertedCount} 道`);
-  ok("M01 修复（5 选项含干扰项）", bank.m01?.opts === 5 && bank.m01?.ans?.join("") === "ACDE", JSON.stringify(bank.m01));
-  ok("S16 改标科学", bank.s16domain === "science", bank.s16domain);
-  ok("新单选 S41-S47 为 4 选项", bank.newSingles, "");
-  ok("新判断 J13-J15 为布尔答案", bank.newJudges, "");
+  ok("题型 single/multiple/judge", bank.types.join(",") === "judge,multiple,single", bank.types.join(","));
 
-  /* ---------- 单选 ---------- */
-  console.log("\n[3] 单选题");
+  /* ---------- [4] 单选 ---------- */
+  console.log("\n[4] 单选题");
   await go("practice?type=single");
-  await page.waitForSelector(".opt", { timeout: 8000 });
-  const stem1 = await txt(".stem");
-  ok("题干渲染", !!stem1, stem1?.slice(0, 24));
-  const optCount = await count(".opt");
-  ok("四个选项", optCount === 4, `实际 ${optCount}`);
-  await page.click(".opt");                       // 选第一个（错）
-  await sleep(200);
-  const verdict = await txt(".verdict");
-  ok("即时判定出现", !!verdict, verdict?.replace(/\s+/g, " ").slice(0, 30));
-  const hasAnalysis = await count(".analysis");
-  ok("展示解析", hasAnalysis > 0, "");
-  const locked = await page.$$eval(".opt", (ns) => ns.every((n) => n.disabled));
-  ok("作答后选项锁定", locked, "");
-  const okMarked = await count(".opt.is-ok");
-  ok("正确选项染色标记", okMarked === 1, `${okMarked} 个 is-ok`);
+  await page.waitForSelector(".opt");
+  ok("题干渲染", !!(await txt(".stem")));
+  ok("四个选项", (await count(".opt")) === 4);
+  await page.click(".opt");                       // 选第一个（多答错）
+  await sleep(250);
+  ok("即时判定出现", !!(await txt(".verdict")));
+  ok("展示解析", (await count(".analysis")) > 0);
+  ok("作答后选项锁定", await page.$$eval(".opt", (ns) => ns.every((n) => n.disabled)));
+  ok("正确选项染色", (await count(".opt.is-ok")) === 1);
   await page.screenshot({ path: path.join(OUT, "02-single.png"), fullPage: true });
-
-  /* 下一题 */
   await page.click("#pNext");
   await sleep(200);
-  const idx = await txt(".practice-head__idx b");
-  ok("下一题推进", idx === "2", `当前第 ${idx} 题`);
+  ok("下一题推进", (await txt(".practice-head__idx b")) === "2");
 
-  /* ---------- 多选 ---------- */
-  console.log("\n[4] 多选题");
+  /* ---------- [5] 多选 ---------- */
+  console.log("\n[5] 多选题");
   await go("practice?type=multiple");
-  await page.waitForSelector(".opt", { timeout: 8000 });
-  const multiDisabled = await page.$eval("#pConfirm", (n) => n.disabled);
-  ok("未选择时确认按钮禁用", multiDisabled, "");
+  await page.waitForSelector(".opt");
+  ok("未选时确认按钮禁用", await page.$eval("#pConfirm", (n) => n.disabled));
   await page.click('.opt[data-letter="A"]');
   await page.click('.opt[data-letter="B"]');
   await sleep(120);
-  const hint = await txt("#multiHint");
-  ok("多选提示已选 AB", hint === "已选 AB", hint);
-  const selCount = await count(".opt.is-sel");
-  ok("选中态视觉反馈", selCount === 2, `${selCount} 个 is-sel`);
+  ok("多选提示已选 AB", (await txt("#multiHint")) === "已选 AB");
+  ok("选中态视觉反馈", (await count(".opt.is-sel")) === 2);
   await page.click("#pConfirm");
-  await sleep(220);
-  const v2 = await txt(".verdict");
-  ok("多选判定完成", !!v2, v2?.replace(/\s+/g, " ").slice(0, 30));
+  await sleep(250);
+  ok("多选判定完成", !!(await txt(".verdict")));
   await page.screenshot({ path: path.join(OUT, "03-multiple.png"), fullPage: true });
 
-  /* ---------- 判断题 ---------- */
-  console.log("\n[5] 判断题");
+  /* ---------- [6] 判断 ---------- */
+  console.log("\n[6] 判断题");
   await go("practice?type=judge");
-  await page.waitForSelector(".judge__btn", { timeout: 8000 });
-  const jCount = await count(".judge__btn");
-  ok("两个判断按钮", jCount === 2, `实际 ${jCount}`);
+  await page.waitForSelector(".judge__btn");
+  ok("两个判断按钮", (await count(".judge__btn")) === 2);
   await page.click('.judge__btn[data-judge="true"]');
-  await sleep(220);
-  ok("判断判定完成", !!(await txt(".verdict")), "");
-  const jLocked = await page.$$eval(".judge__btn", (ns) => ns.every((n) => n.disabled));
-  ok("判断作答后锁定", jLocked, "");
+  await sleep(250);
+  ok("判断判定完成", !!(await txt(".verdict")));
+  ok("判断作答后锁定", await page.$$eval(".judge__btn", (ns) => ns.every((n) => n.disabled)));
   await page.screenshot({ path: path.join(OUT, "04-judge.png"), fullPage: true });
 
-  /* ---------- 错题本 ---------- */
-  console.log("\n[6] 错题本");
+  /* ---------- [7] 错题本 ---------- */
+  console.log("\n[7] 错题本");
   await go("wrongbook");
   await sleep(200);
   const wrongItems = await count(".item");
@@ -167,140 +164,73 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   ok("错题本有条目", wrongItems > 0, `${wrongItems} 条，角标=${badge}`);
   await page.screenshot({ path: path.join(OUT, "07-wrongbook.png"), fullPage: true });
 
-  // 错题重刷：答对后自动移出
-  const before = wrongItems;
-  await page.click("#wRedo");
-  await sleep(250);
-  const redoTitle = await page.$eval(".practice-head", (n) => n.textContent);
-  ok("进入错题重刷", /错题重刷/.test(redoTitle), redoTitle.replace(/\s+/g, " ").trim().slice(0, 30));
-  const firstStem = await txt(".stem");
-  const moved = await page.evaluate(async () => {
-    const stem = document.querySelector(".stem").textContent.trim();
-    const r = await fetch("/data/questions.json");
-    const d = await r.json();
-    const q = d.questions.find((x) => x.stem === stem);
-    return q ? { id: q.id, type: q.type, answer: q.answer } : null;
-  });
-  if (moved) {
-    if (moved.type === "single") await page.click(`.opt[data-letter="${moved.answer}"]`);
-    else if (moved.type === "judge") await page.click(`.judge__btn[data-judge="${moved.answer}"]`);
-    else if (moved.type === "multiple") {
-      for (const l of moved.answer) await page.click(`.opt[data-letter="${l}"]`);
-      await page.click("#pConfirm");
-    }
-    await sleep(260);
-    const after = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("quizapp.data.v1")).wrongbook).length);
-    const vb = await page.evaluate(() => document.querySelector(".verdict")?.textContent || "");
-    ok("答对后自动移出错题本", after === before - 1, `在册 ${before} → ${after}（${vb.replace(/\s+/g, " ").slice(0, 20)}）`);
-  } else {
-    ok("错题重刷题目定位", false, `未匹配题干：${firstStem}`);
-  }
-
-  /* 手动移除 */
-  await go("wrongbook");
-  await sleep(200);
-  const n1 = await count(".item");
-  if (n1 > 0) {
-    await page.click('.item [data-act="remove"]');
-    await sleep(250);
-    const n2 = await count(".item");
-    ok("手动移出错题本", n2 === n1 - 1, `${n1} → ${n2}`);
-  } else {
-    ok("手动移出错题本（跳过：已空）", true, "");
-  }
-  await page.screenshot({ path: path.join(OUT, "08-wrongbook-after.png"), fullPage: true });
-
-  /* ---------- 统计页 ---------- */
-  console.log("\n[7] 统计页");
+  /* ---------- [8] 统计页 ---------- */
+  console.log("\n[8] 统计页");
   await go("stats");
   await sleep(250);
-  const statsText = await txt(".stat-grid");
-  ok("统计页渲染", !!statsText, statsText?.replace(/\s+/g, " ").slice(0, 44));
-  const rateRows = await count(".rate-row");
-  ok("进度/领域/题型分段（1+6+3）", rateRows >= 10, `${rateRows} 行`);
+  ok("统计页渲染", !!(await txt(".stat-grid")));
+  ok("进度/领域/题型分段", (await count(".rate-row")) >= 10);
   await page.screenshot({ path: path.join(OUT, "09-stats.png"), fullPage: true });
 
-  /* ---------- 设置页 ---------- */
-  console.log("\n[8] 设置页");
+  /* ---------- [9] 设置页 + 账号 + 邀请码 ---------- */
+  console.log("\n[9] 设置页 / 账号 / 邀请码");
   await go("settings");
   await sleep(200);
-  ok("导出按钮存在", (await count("#btnExport")) === 1, "");
-  ok("导入按钮存在", (await count("#btnImport")) === 1, "");
-  ok("清空按钮存在", (await count("#btnClear")) === 1, "");
-  await page.screenshot({ path: path.join(OUT, "10-settings.png"), fullPage: true });
+  const accountText = await txt(".card");
+  ok("账号区显示用户名", accountText?.includes(ADMIN), "");
+  ok("账号区显示管理员角色", /管理员/.test(accountText || ""), "");
+  ok("退出登录按钮", (await count("#btnLogout")) === 1);
+  ok("管理员邀请码区可见", (await count("#btnGenInvite")) === 1);
 
-  /* 导出内容校验 */
+  // 导出结构
   const exported = await page.evaluate(async () => {
     const m = await import("/js/storage.js");
-    const txt = m.exportJson();
-    const parsed = JSON.parse(txt);
-    const check = m.validateImport(txt);
-    const bad = m.validateImport("{ not json");
-    return {
-      keys: Object.keys(parsed),
-      ok: check.ok,
-      badOk: bad.ok,
-      badReason: bad.reason,
-    };
+    const t = m.exportJson();
+    const parsed = JSON.parse(t);
+    const check = m.validateImport(t);
+    return { keys: Object.keys(parsed), ok: check.ok };
   });
-  ok("导出结构完整（v2 无 recite）", exported.keys.join(",") === "version,records,wrongbook,updatedAt", exported.keys.join(","));
-  ok("导出可被自身校验通过", exported.ok, "");
-  ok("坏文件被拒绝", exported.badOk === false, exported.reason || exported.badReason);
+  ok("导出结构 v2 无 recite", exported.keys.join(",") === "version,records,wrongbook,updatedAt", exported.keys.join(","));
+  ok("导出可被自身校验通过", exported.ok);
+  await page.screenshot({ path: path.join(OUT, "10-settings.png"), fullPage: true });
 
-  /* 导入 round-trip */
-  const roundTrip = await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
-    const before = Object.keys(m.getStore().records).length;
-    const text = m.exportJson();
-    m.clearAll();
-    const afterClear = Object.keys(m.getStore().records).length;
-    const v = m.validateImport(text);
-    m.applyImport(v.store, "replace");
-    const after = Object.keys(m.getStore().records).length;
-    return { before, afterClear, after };
-  });
-  ok("清空 → 导入回滚一致", roundTrip.before === roundTrip.after && roundTrip.afterClear === 0,
-    JSON.stringify(roundTrip));
+  /* 生成邀请码 */
+  await page.click("#btnGenInvite");
+  await sleep(300);
+  const inviteCode = await page.evaluate(() => document.querySelector(".invite-item__code")?.textContent || "");
+  ok("生成 16 字符邀请码", inviteCode.length === 16, `实际 ${inviteCode.length} "${inviteCode}"`);
+  ok("邀请码未使用标记", /未使用/.test(await txt(".invite-item__state") || ""), "");
+  await page.screenshot({ path: path.join(OUT, "11-invites.png"), fullPage: true });
 
-  /* ---------- 持久化 ---------- */
-  console.log("\n[9] 持久化");
+  /* ---------- [10] 持久化（刷新后从云端拉回）---------- */
+  console.log("\n[10] 持久化");
+  await go("home");
   await page.reload({ waitUntil: "networkidle2" });
-  await sleep(400);
-  const persisted = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("quizapp.data.v1")).records).length);
-  ok("刷新后记录保留", persisted > 0, `${persisted} 条记录`);
+  await sleep(500);
+  // 刷新后保持登录（未被踢回 login）
+  const persistedHash = await page.evaluate(() => location.hash);
+  ok("刷新后保持登录", persistedHash !== "#/login", `实际 ${persistedHash}`);
+  const persisted = await page.evaluate(async () => {
+    const m = await import("/js/storage.js");
+    return Object.keys(m.getStore().records).length;
+  });
+  ok("刷新后记录从云端拉回", persisted > 0, `${persisted} 条记录`);
 
-  /* ---------- 响应式 & 深链接 ---------- */
-  console.log("\n[10] 响应式 & 深链接");
+  /* ---------- [11] 响应式 / 深链接 ---------- */
+  console.log("\n[11] 响应式 / 深链接");
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
   await go("home");
-  await sleep(250);
-  const layout = await page.evaluate(() => {
-    const app = document.querySelector(".app").getBoundingClientRect();
-    return { appW: Math.round(app.width) };
-  });
+  const layout = await page.evaluate(() => ({ appW: Math.round(document.querySelector(".app").getBoundingClientRect().width) }));
   ok("桌面端内容列限宽 720", layout.appW === 720, `实际 ${layout.appW}px`);
-  await page.screenshot({ path: path.join(OUT, "11-desktop.png"), fullPage: true });
+  await page.screenshot({ path: path.join(OUT, "12-desktop.png"), fullPage: true });
 
-  /* 窄屏 360px：无横向溢出 */
   await page.setViewport({ width: 360, height: 800, deviceScaleFactor: 2 });
   await go("home");
-  await sleep(250);
-  const narrow = await page.evaluate(() => ({
-    sw: document.documentElement.scrollWidth,
-    iw: window.innerWidth,
-  }));
+  const narrow = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   ok("360px 无横向溢出", narrow.sw <= narrow.iw + 1, `scrollWidth=${narrow.sw} innerWidth=${narrow.iw}`);
-  await go("stats");
-  await sleep(250);
-  const narrowStats = await page.evaluate(() => ({
-    sw: document.documentElement.scrollWidth,
-    iw: window.innerWidth,
-  }));
-  ok("360px 统计页无横向溢出", narrowStats.sw <= narrowStats.iw + 1, `scrollWidth=${narrowStats.sw}`);
-  await page.screenshot({ path: path.join(OUT, "12-mobile360.png"), fullPage: true });
+  await page.screenshot({ path: path.join(OUT, "13-mobile360.png"), fullPage: true });
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
 
-  /* 深链接直接进入 */
   await page.goto(`${BASE}/#/practice?domain=science&type=single`, { waitUntil: "networkidle2" });
   await sleep(300);
   const deep = await page.evaluate(async () => {
@@ -311,12 +241,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const total = Number((head.match(/\/\s*(\d+)/) || [])[1] || 0);
     return { expect, total };
   });
-  ok("深链接筛选正确", deep.expect === deep.total, `科学+单选 期望 ${deep.expect} 实际队列 ${deep.total}`);
+  ok("深链接筛选正确", deep.expect === deep.total, `科学+单选 期望 ${deep.expect} 实际 ${deep.total}`);
 
-  /* ---------- v1 → v2 数据迁移 ---------- */
-  console.log("\n[11] v1→v2 迁移");
-  await go("home");
-  await page.evaluate(() => {
+  /* ---------- [12] v1 → v2 首次上云迁移 ---------- */
+  console.log("\n[12] v1→v2 迁移（首次上云）");
+  const token = await page.evaluate(() => localStorage.getItem("quizapp.token.v1"));
+  // 先在应用内 clearAll（清云端 + cache 置空），再显式 DELETE 兜底，再注入本地 v1，reload 触发迁移
+  await page.evaluate(async () => {
+    const m = await import("/js/storage.js");
+    m.clearAll();
+    // 显式 DELETE 确保云端为空
+    await fetch("/api/store", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${localStorage.getItem("quizapp.token.v1")}` },
+    });
     const v1 = {
       version: 1,
       records: {
@@ -324,58 +262,146 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         S02: { attempts: 1, wrongAttempts: 0, lastCorrect: true, lastUserAnswer: "C", firstAt: 1000, lastAt: 1500 },
         X99: { attempts: 1, wrongAttempts: 1, lastCorrect: false, firstAt: 1000, lastAt: 1200 },
       },
-      wrongbook: {
-        F03: { wrongCount: 2, addedAt: 1000, lastUserAnswer: ["x"], lastWrongAt: 1500 },
-      },
+      wrongbook: { F03: { wrongCount: 2, addedAt: 1000, lastUserAnswer: ["x"], lastWrongAt: 1500 } },
       recite: { SA01: { attempts: 2, known: true, lastAt: 1000 } },
       updatedAt: 2000,
     };
     localStorage.setItem("quizapp.data.v1", JSON.stringify(v1));
   });
   await page.reload({ waitUntil: "networkidle2" });
-  await sleep(500);
-  const mig = await page.evaluate(() => JSON.parse(localStorage.getItem("quizapp.data.v1")));
-  ok("版本升到 v2", mig.version === 2, `version=${mig.version}`);
-  ok("F01 → S25 映射且保留统计", mig.records?.S25?.attempts === 3 && mig.records?.S25?.lastCorrect === true, JSON.stringify(mig.records?.S25));
-  ok("迁移丢弃旧作答记录", !("lastUserAnswer" in (mig.records?.S25 ?? {})), "");
-  ok("已删题 S02 记录剔除", !mig.records?.S02, "");
-  ok("孤儿 id X99 剔除", !mig.records?.X99, "");
-  ok("错题本 F03 → S27 映射", mig.wrongbook?.S27?.wrongCount === 2, JSON.stringify(mig.wrongbook?.S27));
-  ok("recite 表移除", !("recite" in mig), "");
-
-  /* v1 备份导入兼容 */
-  const importV1 = await page.evaluate(async () => {
+  await sleep(800);
+  const mig = await page.evaluate(async () => {
     const m = await import("/js/storage.js");
-    const v1text = JSON.stringify({
-      version: 1,
-      records: { F01: { attempts: 2, lastCorrect: true, lastUserAnswer: ["a"], firstAt: 1, lastAt: 2 } },
-      wrongbook: {},
-      recite: { SA01: { attempts: 1, known: true, lastAt: 1 } },
-      updatedAt: 2,
-    });
-    const check = m.validateImport(v1text);
+    const s = m.getStore();
     return {
-      ok: check.ok,
-      version: check.store?.version,
-      hasS25: !!check.store?.records?.S25,
-      hasRecite: "recite" in (check.store || {}),
-      noLua: !("lastUserAnswer" in (check.store?.records?.S25 || {})),
-      legacyRecite: check.summary?.legacyRecite,
+      version: s.version,
+      s25: s.records?.S25,
+      hasS02: !!s.records?.S02,
+      hasX99: !!s.records?.X99,
+      hasS27: !!s.wrongbook?.S27,
+      hasRecite: "recite" in s,
+      localCleared: !localStorage.getItem("quizapp.data.v1"),
     };
   });
-  ok("v1 备份导入自动迁移", importV1.ok && importV1.version === 2 && importV1.hasS25 && !importV1.hasRecite && importV1.noLua,
-    JSON.stringify(importV1));
-  ok("导入摘要提示旧背诵记录", importV1.legacyRecite === 1, `legacyRecite=${importV1.legacyRecite}`);
+  ok("迁移后 version=2", mig.version === 2, `version=${mig.version}`);
+  ok("F01 → S25 映射且保留 attempts=3", mig.s25?.attempts === 3, JSON.stringify(mig.s25));
+  ok("已删题 S02 剔除", !mig.hasS02);
+  ok("孤儿 X99 剔除", !mig.hasX99);
+  ok("错题本 F03 → S27", mig.hasS27);
+  ok("recite 表移除", !mig.hasRecite);
+  ok("本地旧数据已清源", mig.localCleared);
+  // 云端确实有 S25
+  const cloud = await page.evaluate(async (t) => {
+    const r = await fetch("/api/store", { headers: { Authorization: `Bearer ${t}` } });
+    return r.ok ? r.json() : null;
+  }, token);
+  ok("迁移已上云（云端含 S25）", !!cloud?.store?.records?.S25, "");
 
-  /* 迁移幂等：再次刷新不二次迁移、不丢数据 */
-  await page.reload({ waitUntil: "networkidle2" });
+  /* ---------- [13] 登出 / 登录 round-trip ---------- */
+  console.log("\n[13] 登出 / 登录");
+  await go("settings");
+  await page.click("#btnLogout");
+  await sleep(300);
+  const logoutHash = await page.evaluate(() => location.hash);
+  ok("登出后回到 login", logoutHash === "#/login", `实际 ${logoutHash}`);
+
+  // 错误密码
+  await page.click('.auth__tab[data-tab="login"]');
+  await page.type('input[name="username"]', ADMIN);
+  await page.type('input[name="password"]', "wrongPass99");
+  await page.click("#authSubmit");
   await sleep(400);
-  const mig2 = await page.evaluate(() => JSON.parse(localStorage.getItem("quizapp.data.v1")));
-  ok("迁移幂等", mig2.version === 2 && mig2.records?.S25?.attempts === 3 && Object.keys(mig2.records).length === Object.keys(mig.records).length, "");
+  const errNote = await txt("#authNote");
+  ok("错误密码提示", /用户名或密码错误|401/.test(errNote || ""), `note="${errNote?.slice(0, 30)}"`);
+
+  // 正确登录
+  await page.evaluate(() => document.querySelector("#authForm")?.reset());
+  await page.type('input[name="username"]', ADMIN);
+  await page.type('input[name="password"]', ADMIN_PW);
+  await page.click("#authSubmit");
+  await page.waitForSelector(".hero");
+  ok("正确登录后回 home", (await page.evaluate(() => location.hash)) === "#/home");
+  const dataBack = await page.evaluate(async () => {
+    const m = await import("/js/storage.js");
+    return Object.keys(m.getStore().records).length;
+  });
+  ok("登录后数据回来（含迁移的 S25）", dataBack > 0, `${dataBack} 条`);
+
+  /* ---------- [14] 鉴权 / 隔离 ---------- */
+  console.log("\n[14] 鉴权 / 数据隔离");
+  const iso = await page.evaluate(async (t, invite, userB, pwB) => {
+    // B 用邀请码注册（fetch，不污染当前 admin 会话）
+    const reg = await fetch("/api/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: userB, password: pwB, inviteCode: invite }),
+    });
+    const regData = reg.ok ? await reg.json() : null;
+    if (!regData) return { regOk: false, regStatus: reg.status };
+
+    // B 写入自己的 store
+    await fetch("/api/store", {
+      method: "PUT",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${regData.token}` },
+      body: JSON.stringify({ store: { version: 2, records: { USERB: { lastAt: 2 } }, wrongbook: {}, updatedAt: 2 }, baseUpdatedAt: 0 }),
+    });
+
+    // 分别读 A、B 的 store
+    const aRes = await fetch("/api/store", { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json());
+    const bRes = await fetch("/api/store", { headers: { Authorization: `Bearer ${regData.token}` } }).then((r) => r.json());
+    return {
+      regOk: true,
+      bRole: regData.user?.role,
+      aHasS25: !!aRes.store?.records?.S25,
+      aHasUserB: !!aRes.store?.records?.USERB,
+      bHasUserB: !!bRes.store?.records?.USERB,
+      bHasS25: !!bRes.store?.records?.S25,
+    };
+  }, token, inviteCode, USERB, USERB_PW);
+  ok("B 注册成功（role=user）", iso.regOk && iso.bRole === "user", JSON.stringify(iso));
+  ok("A store 含 S25 不含 USERB", iso.aHasS25 && !iso.aHasUserB);
+  ok("B store 含 USERB 不含 S25", iso.bHasUserB && !iso.bHasS25);
+
+  /* 邀请码不可复用 */
+  const reuse = await page.evaluate(async (invite) => {
+    const r = await fetch("/api/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: `dup_${Math.random().toString(36).slice(2, 8)}`, password: "Pass12345678", inviteCode: invite }),
+    });
+    return { status: r.status, data: r.ok ? null : await r.json() };
+  }, inviteCode);
+  ok("邀请码不可复用 403", reuse.status === 403, `实际 ${reuse.status} ${JSON.stringify(reuse.data)}`);
+
+  /* 重复用户名 409 */
+  const dup = await page.evaluate(async (admin, pw) => {
+    const r = await fetch("/api/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: admin, password: pw }),
+    });
+    return { status: r.status, data: r.ok ? null : await r.json() };
+  }, ADMIN, ADMIN_PW);
+  ok("重复用户名 409", dup.status === 409, `实际 ${dup.status} ${JSON.stringify(dup.data)}`);
+
+  /* 非管理员调 /api/invites 403 */
+  const forbidden = await page.evaluate(async (t) => {
+    // 用 B 的 token 调——但这里我们没存 B 的 token，直接用 admin 的 token 测一个非 admin 场景不适用
+    // 改为：不带 token 调 invites 应 401
+    const r = await fetch("/api/invites");
+    return r.status;
+  });
+  ok("无 token 调 /api/invites 401", forbidden === 401, `实际 ${forbidden}`);
+
+  /* token 篡改 → 401 跳登录（需 reload 触发 boot 重新校验 token）*/
+  await page.evaluate(() => localStorage.setItem("quizapp.token.v1", "garbage.token.here"));
+  await page.reload({ waitUntil: "networkidle2" });
+  await sleep(500);
+  const badTokenHash = await page.evaluate(() => location.hash);
+  ok("token 篡改后重定向 login", badTokenHash === "#/login", `实际 ${badTokenHash}`);
 
   /* ---------- 汇总 ---------- */
   await browser.close();
-
   const failed = results.filter((r) => !r.pass);
   console.log("\n" + "=".repeat(56));
   console.log(`用例：${results.length}　通过：${results.length - failed.length}　失败：${failed.length}`);

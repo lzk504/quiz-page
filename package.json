@@ -1,0 +1,11 @@
+{
+  "name": "quiz-page",
+  "private": true,
+  "type": "module",
+  "description": "《3-6岁儿童学习与发展指南》刷题手册 — Cloudflare Workers KV 后端 + 纯静态前端",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "validate": "python scripts/validate_questions.py",
+    "e2e": "node scripts/e2e-check.js"
+  }
+}

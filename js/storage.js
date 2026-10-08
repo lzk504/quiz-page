@@ -1,7 +1,11 @@
 /**
- * 本地存储层：localStorage 单 key 持久化 + 降级 + 导入导出。
+ * 存储层：内存 cache + Cloudflare Workers KV 同步。
  *
- * store 结构（v2）：
+ * 对外签名与原 localStorage 版本保持一致（视图层零改动）：
+ *   getStore() 同步返回 cache；recordAnswer/removeFromWrongbook 同步返回结果；
+ *   saveStore 同步更新 cache + 异步推云端。
+ *
+ * store 结构（v2，与服务端 KV 同形）：
  * {
  *   version: 2,
  *   records:  { [qid]: { attempts, wrongAttempts, lastCorrect, lastUserAnswer, firstAt, lastAt } },
@@ -9,24 +13,26 @@
  *   updatedAt: number
  * }
  *
- * v1 → v2：题库重构（填空改单选、删简答）后的自动迁移，见 js/migrate.js。
- * STORE_KEY 保持 "quizapp.data.v1" 不变：就地升级，避免新旧两份数据并存。
+ * STORE_KEY 仅用于"首次上云迁移"：从本地旧 v1 数据读出后上云，然后清源。
  */
 
 import { emit } from "./state.js";
 import { migrateV1toV2 } from "./migrate.js";
+import { apiFetch, isLoggedIn } from "./auth.js";
 
-export const STORE_KEY = "quizapp.data.v1";   // key 名不变（历史原因带 v1 后缀）
+export const STORE_KEY = "quizapp.data.v1";   // 旧 localStorage key，仅迁移用
 export const SCHEMA_VERSION = 2;
 
-let available = true;
-let memory = null;   // localStorage 不可用时的会话内降级存储
-let validIds = null; // 当前题库 id 集（main.js 在题库加载后注入，用于迁移时剔除孤儿记录）
+let available = true;            // localStorage 可用性（token 存取兜底）
+let cache = null;                 // 内存中的 store（同步读源）
+let baseUpdatedAt = 0;           // 服务端最近已知 updatedAt（乐观锁基线）
+let validIds = null;              // 题库 id 集（迁移剔除孤儿用）
+let putTimer = null;             // debounce 定时器
+let putInFlight = false;         // 是否正在发送 PUT
+let putRetry = 0;                // 重试计数
+let sync = { status: "idle", lastSyncAt: 0, error: null };  // 同步状态
 
-/** 注入题库 id 集；须在 initStorage() 之前调用，否则迁移只映射 id 不剔除孤儿 */
-export function setValidIds(ids) {
-  validIds = new Set(ids);
-}
+/* ---------------- 工具 ---------------- */
 
 const emptyStore = () => ({
   version: SCHEMA_VERSION,
@@ -35,7 +41,12 @@ const emptyStore = () => ({
   updatedAt: 0,
 });
 
-/* ---------------- 可用性 & 读写 ---------------- */
+function setSync(status, error = null) {
+  sync = { status, lastSyncAt: status === "ok" ? Date.now() : sync.lastSyncAt, error };
+  emit("sync-status", sync);
+}
+
+export function getSyncStatus() { return sync; }
 
 function probe() {
   try {
@@ -43,12 +54,10 @@ function probe() {
     localStorage.setItem(k, "1");
     localStorage.removeItem(k);
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-/** 结构校验与修补：脏数据不静默吞掉，而是补齐字段并告警 */
+/** 结构校验与修补 */
 function normalize(raw) {
   if (!raw || typeof raw !== "object") return null;
   const store = emptyStore();
@@ -61,72 +70,202 @@ function normalize(raw) {
   return store;
 }
 
-/** 旧版本数据就地迁移（v1 → v2） */
 function migrateIfNeeded(store) {
   if (!store || store.version >= SCHEMA_VERSION) return store;
   return migrateV1toV2(store, validIds);
 }
 
-export function loadStore() {
-  if (!available) {
-    if (!memory) memory = emptyStore();
-    return memory;
-  }
+/** 注入题库 id 集；须在 initStorage() 之前调用 */
+export function setValidIds(ids) {
+  validIds = new Set(ids);
+}
+
+/* ---------------- 云端读写 ---------------- */
+
+async function loadStoreFromCloud() {
+  if (!isLoggedIn()) return emptyStore();
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return emptyStore();
-    const parsed = normalize(JSON.parse(raw));
-    if (!parsed) {
-      console.warn("[storage] 数据格式异常，已重置");
-      return emptyStore();
+    const data = await apiFetch("/api/store");
+    if (data && data.store) {
+      const parsed = normalize(data.store);
+      const migrated = migrateIfNeeded(parsed) ?? emptyStore();
+      baseUpdatedAt = data.updatedAt || migrated.updatedAt || 0;
+      setSync("ok");
+      return migrated;
     }
-    const migrated = migrateIfNeeded(parsed);
-    if (migrated !== parsed) {
-      console.info("[storage] 已从 v1 迁移到 v2（填空题记录已映射为新 id，背诵记录已移除）");
-      saveStore(migrated, { silent: true });
+    // 云端无数据：检查本地是否有旧 v1 数据，首次上云迁移
+    const localStore = tryReadLocalLegacy();
+    if (localStore) {
+      const migrated = migrateIfNeeded(localStore);
+      migrated.updatedAt = Date.now();
+      // 推上云
+      try {
+        const put = await apiFetch("/api/store", {
+          method: "PUT",
+          body: { store: migrated, baseUpdatedAt: 0 },
+        });
+        baseUpdatedAt = put?.updatedAt || migrated.updatedAt;
+        clearLocalLegacy();
+        setSync("ok");
+        console.info("[storage] 本地旧数据已迁移上云并清源");
+      } catch (e) {
+        baseUpdatedAt = 0;
+        setSync("error", e?.message || "上云失败");
+        console.warn("[storage] 首次上云失败，保留本地副本", e);
+      }
+      return migrated;
     }
-    return migrated;
+    baseUpdatedAt = 0;
+    setSync("ok");
+    return emptyStore();
   } catch (e) {
-    console.warn("[storage] 读取失败，已重置", e);
+    setSync("error", e?.message || "拉取失败");
+    console.warn("[storage] 云端拉取失败，使用空 store", e);
     return emptyStore();
   }
 }
 
-let cache = null;
+function tryReadLocalLegacy() {
+  if (!available) return null;
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return null;
+    return normalize(JSON.parse(raw));
+  } catch { return null; }
+}
+
+function clearLocalLegacy() {
+  try { localStorage.removeItem(STORE_KEY); } catch {}
+}
+
+/* ---------------- 对外同步 API ---------------- */
 
 export function getStore() {
-  if (!cache) cache = loadStore();
+  if (!cache) cache = emptyStore();
   return cache;
 }
 
 export function saveStore(store = getStore(), { silent = false } = {}) {
   store.updatedAt = Date.now();
   cache = store;
-  if (!available) {
-    memory = store;
-    if (!silent) emit("store-changed", store);
-    return true;
-  }
+  schedulePut();
+  if (!silent) emit("store-changed", store);
+  return true;
+}
+
+/* ---------------- 异步推云 ---------------- */
+
+function schedulePut() {
+  if (!isLoggedIn()) return;   // 未登录：仅内存，不推
+  if (putTimer) clearTimeout(putTimer);
+  putTimer = setTimeout(() => { putTimer = null; doPut(); }, 800);
+}
+
+async function doPut() {
+  if (!isLoggedIn() || putInFlight) return;
+  putInFlight = true;
+  setSync("pending");
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(store));
-    if (!silent) emit("store-changed", store);
-    return true;
+    const data = await apiFetch("/api/store", {
+      method: "PUT",
+      body: { store: cache, baseUpdatedAt },
+    });
+    baseUpdatedAt = data?.updatedAt ?? cache.updatedAt;
+    putRetry = 0;
+    setSync("ok");
   } catch (e) {
-    // 配额超限或被禁用：切到内存模式并提示
-    console.warn("[storage] 写入失败，切换为内存模式", e);
-    available = false;
-    memory = store;
-    emit("storage-broken", e);
-    return false;
+    if (e.status === 409) {
+      // 云端有更新：拉回 merge 后重试一次
+      try {
+        const remote = await apiFetch("/api/store");
+        if (remote?.store) {
+          const merged = mergeWithRemote(normalize(remote.store) ?? emptyStore());
+          cache = merged;
+          baseUpdatedAt = remote.updatedAt || merged.updatedAt;
+          emit("store-changed", cache);
+        }
+        putRetry = 0;
+        setSync("ok");
+      } catch (e2) {
+        setSync("error", "云端有更新，合并失败");
+      }
+    } else if (e.status === 0) {
+      // 网络错误：退避重试
+      putRetry++;
+      if (putRetry <= 3) {
+        setSync("error", "网络异常，重试中…");
+        setTimeout(() => { putInFlight = false; doPut(); }, 1500 * putRetry);
+        putInFlight = false;
+        return;
+      }
+      setSync("error", "同步失败，将在网络恢复后重试");
+    } else {
+      setSync("error", e.message || "同步失败");
+    }
+    putRetry = 0;
+  } finally {
+    putInFlight = false;
   }
 }
 
-export const isPersistent = () => available;
+/** 远端 store 与本地 cache 按 lastAt 新者胜合并（复用 applyImport 的口径） */
+function mergeWithRemote(remote) {
+  const cur = cache ?? emptyStore();
+  const merged = emptyStore();
+  merged.updatedAt = Math.max(cur.updatedAt || 0, remote.updatedAt || 0);
+  for (const key of ["records", "wrongbook"]) {
+    const out = { ...(cur[key] || {}) };
+    for (const [qid, entry] of Object.entries(remote[key] || {})) {
+      const mine = out[qid];
+      const myTime = mine?.lastAt ?? mine?.lastWrongAt ?? mine?.addedAt ?? 0;
+      const theirTime = entry?.lastAt ?? entry?.lastWrongAt ?? entry?.addedAt ?? 0;
+      if (!mine || theirTime > myTime) out[qid] = entry;
+    }
+    merged[key] = out;
+  }
+  return merged;
+}
 
-export function initStorage() {
+/** 立即把待发数据推上去（页面隐藏/关闭前调用） */
+export function flushStore() {
+  if (putTimer) { clearTimeout(putTimer); putTimer = null; }
+  if (!isLoggedIn() || !cache) return;
+  // 空 store 不 flush（clearAll 已 DELETE 云端，避免用空覆盖或与迁移冲突）
+  const isEmpty = Object.keys(cache.records).length === 0 && Object.keys(cache.wrongbook).length === 0;
+  if (isEmpty) return;
+  try {
+    // keepalive:true 允许页面卸载后请求仍发出；body ≤64KB（store 远小于）
+    fetch("/api/store", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(getTokenHeader()),
+      },
+      body: JSON.stringify({ store: cache, baseUpdatedAt }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* ignore */ }
+}
+
+function getTokenHeader() {
+  try {
+    const t = localStorage.getItem("quizapp.token.v1");
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch { return {}; }
+}
+
+/* ---------------- 可用性 & 初始化 ---------------- */
+
+export const isPersistent = () => available && isLoggedIn();
+
+export async function initStorage() {
   available = probe();
-  if (!available) emit("storage-broken", new Error("localStorage 不可用"));
-  cache = loadStore();
+  if (!available) emit("storage-broken", new Error("localStorage 不可用，登录态无法保持"));
+  if (isLoggedIn()) {
+    cache = await loadStoreFromCloud();
+  } else {
+    cache = emptyStore();
+  }
   return available;
 }
 
@@ -184,32 +323,26 @@ export function removeFromWrongbook(questionId) {
 
 export function clearAll() {
   cache = emptyStore();
-  memory = cache;
-  if (available) {
-    try {
-      localStorage.removeItem(STORE_KEY);
-    } catch { /* ignore */ }
+  baseUpdatedAt = 0;
+  if (isLoggedIn()) {
+    apiFetch("/api/store", { method: "DELETE" }).catch(() => {});
   }
   emit("store-changed", cache);
   return true;
 }
 
-/** 导出：返回可下载的 JSON 文本 */
+/** 导出：返回可下载的 JSON 文本（当前 cache） */
 export function exportJson() {
   return JSON.stringify(getStore(), null, 2);
 }
 
 /**
- * 导入校验：返回 { ok, store?, reason? }
- * 只做结构与类型校验，不触碰现有数据。v1 旧备份会自动迁移为 v2。
+ * 导入校验：返回 { ok, store?, reason? }，不触碰现有数据。v1 旧备份自动迁移。
  */
 export function validateImport(text) {
   let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return { ok: false, reason: "不是合法的 JSON 文件" };
-  }
+  try { raw = JSON.parse(text); }
+  catch { return { ok: false, reason: "不是合法的 JSON 文件" }; }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, reason: "文件内容不是对象结构" };
   }
@@ -233,7 +366,6 @@ function summarize(raw) {
   return {
     records: Object.keys(raw.records ?? {}).length,
     wrongbook: Object.keys(raw.wrongbook ?? {}).length,
-    legacyRecite: Object.keys(raw.recite ?? {}).length,   // v1 背诵记录，导入后丢弃
   };
 }
 
@@ -241,6 +373,7 @@ function summarize(raw) {
 export function applyImport(store, mode = "replace") {
   if (mode === "replace") {
     cache = store;
+    baseUpdatedAt = 0;   // 导入后视为全新基线，让乐观锁容忍
     saveStore(cache);
     return cache;
   }
