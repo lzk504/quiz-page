@@ -140,7 +140,6 @@ export function generateInviteCode() {
 export const USERNAME_RE = /^[A-Za-z0-9_-]{3,32}$/;
 
 export function validatePassword(password) {
-  if (typeof password !== "string" || password.length < 8) return "密码至少 8 位";
-  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return "密码需同时包含字母和数字";
+  if (typeof password !== "string" || !/[A-Z]/.test(password)) return "密码需包含至少一个大写字母";
   return null;
 }

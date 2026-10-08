@@ -66,9 +66,12 @@ console.log("\n=== [2] 重复用户名（应 409）===");
 r = await call("POST", "/api/register", { body: { username: adminUser, password: adminPw } });
 ok("状态 409", r.status === 409, `实际 ${r.status}`);
 
-console.log("\n=== [3] 密码太短（应 400）===");
+console.log("\n=== [3] 密码规则：仅要求大写字母 ===");
 r = await call("POST", "/api/register", { body: { username: `x_${rnd()}`, password: "abc1" } });
-ok("状态 400", r.status === 400, `实际 ${r.status}`);
+ok("无大写字母 → 400", r.status === 400 && /大写字母/.test(r.data?.message || ""), `实际 ${r.status} ${r.data?.message}`);
+// 短密码但含大写字母：应通过密码校验，被「需要邀请码」拦下（证明未因密码规则被拒）
+r = await call("POST", "/api/register", { body: { username: `y_${rnd()}`, password: "A" } });
+ok("短密码含大写字母通过密码校验", r.status === 400 && /邀请码/.test(r.data?.message || ""), `实际 ${r.status} ${r.data?.message}`);
 
 console.log("\n=== [4] 未带邀请码注册（非首用户，应 400）===");
 r = await call("POST", "/api/register", { body: { username: userB, password: userBPw } });

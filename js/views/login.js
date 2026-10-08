@@ -28,8 +28,8 @@ export default {
           <label class="field">
             <span class="field__label">密码</span>
             <input class="field__input" name="password" type="password" required
-                   minlength="8" autocomplete="current-password"
-                   placeholder="至少 8 位，含字母和数字">
+                   autocomplete="current-password"
+                   placeholder="需包含至少一个大写字母">
           </label>
 
           <label class="field" id="inviteField" hidden>
