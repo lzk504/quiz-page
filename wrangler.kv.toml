@@ -1,0 +1,15 @@
+name = "quiz-page"
+main = "worker/index.js"
+compatibility_date = "2026-10-08"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+html_handling = "none"
+not_found_handling = "none"
+
+# Cloudflare Workers KV：用户表 / 凭证 / 邀请码 / 每用户刷题数据
+# KV 命名空间通过 Cloudflare Dashboard → 该 Worker → Settings → Bindings 绑定，变量名 "KV"
+[[kv_namespaces]]
+binding = "KV"
