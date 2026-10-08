@@ -84,14 +84,10 @@ dev-server 使用内存 mock KV（重启即清空），KV 接口与 Cloudflare �
 ## 可视化快速部署
 
 1. Fork 本仓库到自己的 GitHub 账号（或直接使用你已推送的 `lzk504/quiz-page`）
-2. 创建 KV namespace 并填入配置：
-   ```bash
-   npx wrangler kv namespace create KV
-   ```
-   把命令返回的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]] id`，替换掉 `REPLACE_WITH_KV_NAMESPACE_ID` 占位符——**这是部署前必做的一步**，否则 KV 绑定会失败
-3. 进入 [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create) → Create → Workers → **Continue with GitHub** → 选择你的仓库
-4. 构建命令**留空**（纯 JS ES Module，无构建步骤）；部署命令保持默认 `npx wrangler deploy`
-5. 等部署完成后，到 Workers 的 **Settings → Variables and Secrets** 添加 `JWT_SECRET`（30+ 字符随机串，必须为 Runtime Secret 而非 Build variable）
+2. 进入 [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create) → Create → Workers → **Continue with GitHub** → 选择你的仓库
+3. 构建命令**留空**（纯 JS ES Module，无构建步骤）；部署命令保持默认 `npx wrangler deploy`
+4. 等部署完成后，到该 Worker 的 **Settings → Bindings** 添加 KV Namespace：变量名填 `KV`，选择或新建一个 namespace
+5. 同在 **Settings → Variables and Secrets** 添加 `JWT_SECRET`（30+ 字符随机串，必须为 Runtime Secret 而非 Build variable）
 6. 打开生成的 Workers 域名，**第一个注册的用户自动成为管理员**（无需邀请码）；之后注册需向管理员索取邀请码
 
 - Workers 默认域名在部分网络不可直连。如需自定义域名，到 [Workers 设置](https://dash.cloudflare.com/?to=/:account/workers/services/view/quiz-page/production/settings)里添加。
@@ -113,8 +109,8 @@ dev-server 使用内存 mock KV（重启即清空），KV 接口与 Cloudflare �
 - **我配置了 `JWT_SECRET`，为什么页面仍然提示缺少？**
   请将 `JWT_SECRET` 配置在 Cloudflare Workers 的 **Settings → Variables and Secrets** 中，并确保它属于 **Runtime variables and secrets**，而不是 **Build variables**。Build 阶段的变量只在构建过程中可用，Worker 运行时无法读取。
 
-- **`wrangler.toml` 里的 KV id 是占位符？**
-  部署前必须运行 `npx wrangler kv namespace create KV` 创建真实 namespace，并用返回的 id 替换 `wrangler.toml` 中的 `REPLACE_WITH_KV_NAMESPACE_ID`。占位符无法通过 wrangler 的 id 格式校验。
+- **KV 绑定怎么配？`wrangler.toml` 里为什么没有 KV id？**
+  可视化部署在 Dashboard → 该 Worker → Settings → Bindings 添加 KV Namespace（变量名必须填 `KV`），dashboard 绑定在 Workers Builds 流程中跨 redeploy 持久、与 wrangler.toml 合并，所以仓库里不需要硬编码 id。CLI 部署则取消 `wrangler.toml` 中 kv 块的注释并填入 `npx wrangler kv namespace create KV` 返回的真实 id。
 
 ## 更新方法
 
@@ -132,7 +128,7 @@ git clone https://github.com/lzk504/quiz-page.git
 cd quiz-page
 
 npx wrangler login
-npx wrangler kv namespace create KV        # 把返回 id 填入 wrangler.toml
+npx wrangler kv namespace create KV        # 取消 wrangler.toml 中 kv 块注释，把返回 id 填入
 npx wrangler secret put JWT_SECRET         # 30+ 字符随机串
 npx wrangler deploy
 

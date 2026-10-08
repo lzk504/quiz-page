@@ -12,11 +12,15 @@ html_handling = "none"
 not_found_handling = "none"
 
 # Cloudflare Workers KV：用户表 / 凭证 / 邀请码 / 每用户刷题数据
-# 部署前先运行：npx wrangler kv namespace create KV   （把返回的 id 填到下方）
-[[kv_namespaces]]
-binding = "KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+# 两种配置方式二选一：
+#   ① 可视化部署（推荐）：部署成功后到 Cloudflare Dashboard → 该 Worker →
+#      Settings → Bindings → Add → KV Namespace，变量名填 "KV"
+#   ② CLI 部署：取消下面三行注释，id 填 `npx wrangler kv namespace create KV` 返回值
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "your-namespace-id"
+# preview_id = "your-preview-id"
 
 # JWT_SECRET 用 secret 注入（不写入此文件）：
-#   npx wrangler secret put JWT_SECRET     # 30+ 字符随机串
+#   可视化部署：Dashboard → 该 Worker → Settings → Variables and Secrets → 添加 Runtime Secret
+#   CLI 部署：npx wrangler secret put JWT_SECRET     # 30+ 字符随机串
