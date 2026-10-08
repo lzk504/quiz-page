@@ -81,49 +81,64 @@ dev-server 使用内存 mock KV（重启即清空），KV 接口与 Cloudflare �
 也可以用真实的 `wrangler dev`（本地 miniflare KV 模拟，端口 8787），
 需先完成下方部署配置中的 KV namespace 创建。
 
-## 部署到 Cloudflare Workers
+## 可视化快速部署
 
-### 1. 创建 KV namespace
+1. Fork 本仓库到自己的 GitHub 账号（或直接使用你已推送的 `lzk504/quiz-page`）
+2. 创建 KV namespace 并填入配置：
+   ```bash
+   npx wrangler kv namespace create KV
+   ```
+   把命令返回的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]] id`，替换掉 `REPLACE_WITH_KV_NAMESPACE_ID` 占位符——**这是部署前必做的一步**，否则 KV 绑定会失败
+3. 进入 [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create) → Create → Workers → **Continue with GitHub** → 选择你的仓库
+4. 构建命令**留空**（纯 JS ES Module，无构建步骤）；部署命令保持默认 `npx wrangler deploy`
+5. 等部署完成后，到 Workers 的 **Settings → Variables and Secrets** 添加 `JWT_SECRET`（30+ 字符随机串，必须为 Runtime Secret 而非 Build variable）
+6. 打开生成的 Workers 域名，**第一个注册的用户自动成为管理员**（无需邀请码）；之后注册需向管理员索取邀请码
+
+- Workers 默认域名在部分网络不可直连。如需自定义域名，到 [Workers 设置](https://dash.cloudflare.com/?to=/:account/workers/services/view/quiz-page/production/settings)里添加。
+- 页面提示缺少 `JWT_SECRET` 时，到 Workers 设置里添加 Secret。正式环境至少使用 30 个字符以上的随机字符串，不要使用临时值或示例值。`JWT_SECRET` 属于运行时凭据，不要写进 `wrangler.toml` 或代码仓库。
+- 部署后用 curl 抽查以下路径应返回 404（`.assetsignore` 已排除源码/文档/脚本，防止泄露）：
+  ```
+  /worker/index.js  /README.md  /scripts/e2e-check.js  /wrangler.toml
+  ```
+- `run_worker_first = ["/api/*"]` 需要 Wrangler ≥ 4.20；旧环境改为 `run_worker_first = true`（`worker/index.js` 已有 `env.ASSETS.fetch` 兜底，功能不变）。
+
+## 常见问题
+
+- **首次注册为何不要求邀请码？**
+  首位注册用户自动成为管理员，无需邀请码；之后注册需一次性邀请码（管理员在设置页生成并管理）。
+
+- **删掉部署后重新部署，为什么注册又开始要求邀请码？**
+  删除 Worker 或重新部署并不会删除已创建的 KV 数据，`users` 表中的用户记录仍然存在，因此重新部署后系统仍判定"已初始化"并继续要求邀请码。如果希望完全重新开始，需要同时删除对应的 **KV namespace**。
+
+- **我配置了 `JWT_SECRET`，为什么页面仍然提示缺少？**
+  请将 `JWT_SECRET` 配置在 Cloudflare Workers 的 **Settings → Variables and Secrets** 中，并确保它属于 **Runtime variables and secrets**，而不是 **Build variables**。Build 阶段的变量只在构建过程中可用，Worker 运行时无法读取。
+
+- **`wrangler.toml` 里的 KV id 是占位符？**
+  部署前必须运行 `npx wrangler kv namespace create KV` 创建真实 namespace，并用返回的 id 替换 `wrangler.toml` 中的 `REPLACE_WITH_KV_NAMESPACE_ID`。占位符无法通过 wrangler 的 id 格式校验。
+
+## 更新方法
+
+- 拉取上游并重新部署：
+  ```bash
+  git pull
+  npx wrangler deploy
+  ```
+- 或在 Cloudflare 面板中 Sync fork → Update branch，然后触发重新部署。
+
+## CLI 部署
 
 ```bash
-npx wrangler kv namespace create KV
-# 把返回的 id 填入 wrangler.toml 的 [[kv_namespaces]] id
-# 本地 wrangler dev 用 preview_id（可选）
-```
+git clone https://github.com/lzk504/quiz-page.git
+cd quiz-page
 
-### 2. 设置 JWT_SECRET（30+ 字符随机串，不要写进 wrangler.toml）
-
-```bash
-npx wrangler secret put JWT_SECRET
-# 生成随机串：node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-# 也可在 Dashboard → Workers → 该 Worker → Settings → Variables and Secrets 添加
-```
-
-### 3. 部署
-
-**方式 A：Git 连接（推荐，同 nodewarden 的可视部署）**
-
-1. 推送仓库到 GitHub
-2. Cloudflare Dashboard → Workers & Pages → Create → Workers → Connect to Git
-3. 构建命令留空（纯 JS ES Module，无构建）；wrangler.toml 定义绑定
-4. 部署完成后在 dashboard 设置 JWT_SECRET（Git 路径无法预置 secret）
-
-**方式 B：命令行**
-
-```bash
+npx wrangler login
+npx wrangler kv namespace create KV        # 把返回 id 填入 wrangler.toml
+npx wrangler secret put JWT_SECRET         # 30+ 字符随机串
 npx wrangler deploy
+
+# 本地开发（无需 Cloudflare 账号，内存 mock KV）
+npm run dev                                  # http://127.0.0.1:8123
 ```
-
-### 4. 验证 .assetsignore 生效
-
-部署后以下路径应返回 404（源码/文档未被当作静态资产公开）：
-
-```
-/worker/index.js  /README.md  /scripts/e2e-check.js  /wrangler.toml
-```
-
-注意：`run_worker_first = ["/api/*"]` 需要 Wrangler ≥ 4.20；旧环境改为
-`run_worker_first = true`（worker/index.js 已有 `env.ASSETS.fetch` 兜底，功能不变）。
 
 ## API
 
