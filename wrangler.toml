@@ -17,13 +17,13 @@ not_found_handling = "none"
 
 # D1：用户信息 / 凭证 / 邀请码 / 刷题进度（schema 首次请求自动初始化，无需手动上传 SQL）
 # 不写 database_id：数据库在 Cloudflare Dashboard 手动创建后，通过 Bindings 绑定（变量名 DB）。
-# 这样部署时无需先 `wrangler d1 create`，也不在配置里暴露 uuid。
+# Dashboard 里 D1 数据库命名为 quiz-page-db。
 [[d1_databases]]
 binding = "DB"
-database_name = "quiz-page"
+database_name = "quiz-page-db"
 
 # KV：每日访问限额计数（24h TTL 自动回收；register/login 每日限额用）
-# 同样不写 id：namespace 在 Dashboard 手动创建后绑定（变量名 RATE_LIMITS）。
+# 不写 id：namespace 在 Dashboard 手动创建（命名为 quiz-page-kv）后绑定（变量名 RATE_LIMITS）。
 [[kv_namespaces]]
 binding = "RATE_LIMITS"
 

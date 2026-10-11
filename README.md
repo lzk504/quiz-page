@@ -95,11 +95,11 @@ Cloudflare 构建配置：
 
 部署后在 Dashboard 配置两个绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
 
-1. **D1 绑定**：Dashboard → 存储和数据库 → D1 → 创建数据库，名称填 **`quiz-page`**；
+1. **D1 绑定**：Dashboard → 存储和数据库 → D1 → 创建数据库，名称填 **`quiz-page-db`**；
    再到 Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → D1 database →
-   变量名填 **`DB`** → 选 `quiz-page`
-2. **KV 绑定**：Dashboard → 存储和数据库 → KV → 创建命名空间（名称随意，如 `quiz-page`）；
-   再到 Workers → 设置 → 绑定 → 添加 → KV 命名空间 → 变量名填 **`RATE_LIMITS`**
+   变量名填 **`DB`** → 选 `quiz-page-db`
+2. **KV 绑定**：Dashboard → 存储和数据库 → KV → 创建命名空间，名称填 **`quiz-page-kv`**；
+   再到 Workers → 设置 → 绑定 → 添加 → KV 命名空间 → 变量名填 **`RATE_LIMITS`** → 选 `quiz-page-kv`
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
