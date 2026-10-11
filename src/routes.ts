@@ -159,13 +159,9 @@ export const adminBackup: Handler = async (c) => {
 export const devReset: Handler = async (c) => {
   if (c.env.ALLOW_DEV_RESET !== "1") return fail(404, "not_found", "接口不存在");
 
-  if (c.env.DB) {
-    await c.env.DB.batch([
-      c.env.DB.prepare("DELETE FROM users"),
-      c.env.DB.prepare("DELETE FROM invites"),
-      c.env.DB.prepare("DELETE FROM quiz_stores"),
-      c.env.DB.prepare("DELETE FROM meta"),
-    ]);
+  if (c.env.KV) {
+    const list = await c.env.KV.list();
+    for (const k of list.keys || []) await c.env.KV.delete(k.name);
   }
   _resetRateLimitForTest();
   return json({ ok: true });

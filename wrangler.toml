@@ -15,13 +15,12 @@ binding = "ASSETS"
 run_worker_first = ["/api/*"]
 not_found_handling = "none"
 
-# D1：用户 / 凭证 / 邀请码 / 刷题数据（schema 首次请求自动初始化，无需手动上传 SQL）
-# 部署前运行 npx wrangler d1 create quiz-page-db，把返回的 database_id 填入下方，
-# 或在 Cloudflare Dashboard 的 Bindings 里绑定 D1 database（变量名 DB）
-[[d1_databases]]
-binding = "DB"
-database_name = "quiz-page-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+# KV：用户表 / 凭证 / 邀请码 / 刷题数据（唯一存储后端）
+# 部署前运行 npx wrangler kv namespace create KV，把返回的 id 填入下方，
+# 或在 Cloudflare Dashboard 的 Bindings 里绑定 KV namespace（变量名 KV）
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
 # "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）

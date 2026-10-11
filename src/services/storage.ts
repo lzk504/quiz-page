@@ -1,13 +1,13 @@
 /**
- * 存储工厂：D1 唯一后端（v4 起移除 KV 回退模式与 KV→D1 迁移）。
+ * 存储工厂：KV 唯一后端（v4.2 起从 D1 切回 KV）。
  */
 
-import { D1Store } from "./storage-d1";
+import { KvStore } from "./storage-kv";
 import type { Env, Store } from "../types";
 
 export function createStore(env: Env): Store {
-  if (env.DB) return new D1Store(env.DB);
-  throw new Error("未配置 D1 存储绑定（DB）");
+  if (env.KV) return new KvStore(env.KV);
+  throw new Error("未配置 KV 存储绑定（KV）");
 }
 
-export { D1Store };
+export { KvStore };
