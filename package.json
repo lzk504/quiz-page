@@ -6,11 +6,9 @@
   "description": "《3-6岁儿童学习与发展指南》刷题手册 — Cloudflare Workers + D1 + TypeScript",
   "scripts": {
     "dev": "wrangler dev",
-    "dev:kv": "wrangler dev --config wrangler.kv.toml",
     "dev:frontend": "vite webapp",
     "build": "vite build webapp && tsc --noEmit && tsc --noEmit -p webapp",
     "deploy": "wrangler deploy",
-    "deploy:kv": "wrangler deploy --config wrangler.kv.toml",
     "test": "tsx scripts/api-test.ts",
     "e2e": "node scripts/e2e-check.js"
   },

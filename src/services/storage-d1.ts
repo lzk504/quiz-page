@@ -1,14 +1,13 @@
 /**
- * D1 存储实现（默认模式）。
+ * D1 存储实现（唯一后端）。
  *
- * 相对 KV 模式的关键改进：
- *   - registerUser 用 `db.batch()` 事务保证「建号 + 核销邀请码」原子性（KV 模式是三次独立写）
- *   - 用户名唯一约束兜底并发注册竞态（KV 模式是 read-then-write）
+ * 关键设计：
+ *   - registerUser 用 `db.batch()` 事务保证「建号 + 核销邀请码」原子性
+ *   - 用户名唯一约束兜底并发注册竞态
  *   - 邀请码核销 UPDATE 带 `used_by IS NULL` 守卫，changes=0 即判定被并发抢用
  */
 
 import { ensureSchema } from "./storage-schema";
-import { ensureBulkMigrated, readThroughStore, readThroughUserAuth } from "./migrate-kv";
 import type {
   AuthRecord, BackupData, Invite, NewUserRec, QuizStore,
   RegisterResult, Role, Store,
@@ -52,16 +51,11 @@ function rowToInvite(row: InviteRow): Invite {
 }
 
 export class D1Store implements Store {
-  /**
-   * @param db D1 绑定
-   * @param kv 可选的 KV 迁移源（迁移期绑定旧 KV 命名空间；迁移完成后可从配置移除）
-   */
-  constructor(private db: D1Database, private kv?: KVNamespace) {}
+  constructor(private db: D1Database) {}
 
-  /** schema 初始化 + KV 批量迁移（均为 module 级缓存，首次调用后零开销） */
+  /** schema 初始化（module 级缓存，首次调用后零开销） */
   private async ready(): Promise<void> {
     await ensureSchema(this.db);
-    await ensureBulkMigrated(this.db, this.kv);
   }
 
   /* ---------------- 用户 ---------------- */
@@ -78,9 +72,7 @@ export class D1Store implements Store {
       .prepare("SELECT * FROM users WHERE username = ?")
       .bind(username)
       .first<UserRow>();
-    if (row) return rowToAuth(row);
-    // 读穿：D1 缺失时尝试从 KV 迁移（批量迁移漏网的边界情况）
-    return readThroughUserAuth(this.db, this.kv, username);
+    return row ? rowToAuth(row) : null;
   }
 
   async registerUser(rec: NewUserRec, inviteCode?: string): Promise<RegisterResult> {
@@ -178,11 +170,8 @@ export class D1Store implements Store {
       .prepare("SELECT data FROM quiz_stores WHERE username = ?")
       .bind(username)
       .first<{ data: string }>();
-    if (row) {
-      try { return JSON.parse(row.data) as QuizStore; } catch { return null; }
-    }
-    // 读穿：D1 缺失时从 KV 迁移该用户的刷题数据
-    return readThroughStore(this.db, this.kv, username);
+    if (!row) return null;
+    try { return JSON.parse(row.data) as QuizStore; } catch { return null; }
   }
 
   async putStore(username: string, store: QuizStore): Promise<void> {

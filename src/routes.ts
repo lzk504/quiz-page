@@ -166,9 +166,6 @@ export const devReset: Handler = async (c) => {
       c.env.DB.prepare("DELETE FROM quiz_stores"),
       c.env.DB.prepare("DELETE FROM meta"),
     ]);
-  } else if (c.env.KV) {
-    const list = await c.env.KV.list();
-    for (const k of list.keys || []) await c.env.KV.delete(k.name);
   }
   _resetRateLimitForTest();
   return json({ ok: true });

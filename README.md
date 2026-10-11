@@ -1,6 +1,6 @@
 # 《3-6岁儿童学习与发展指南》刷题手册
 
-刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**（默认）/ KV（回退模式），
+刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**，
 前端 TypeScript + **Vite** 构建。参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
 的分层架构：可插拔存储、路由中间件、JWT 用户体系、D1 schema 首次请求自动初始化。
 
@@ -9,7 +9,7 @@
 | 层 | 选型 |
 |---|---|
 | 后端 | Cloudflare Workers，**TypeScript**（`src/`，wrangler 用 esbuild 编译），零运行时依赖 |
-| 存储 | **Cloudflare D1**（默认）；KV 作为回退模式；通过 `Store` 接口可插拔 |
+| 存储 | **Cloudflare D1**（唯一后端）；通过 `Store` 接口抽象 |
 | 前端 | **TypeScript** + Vite 构建（vanilla DOM，无框架），构建产物到 `./dist` |
 | 鉴权 | 自实现 JWT(HS256) + PBKDF2-SHA256 密码哈希（Web Crypto，无第三方库） |
 | 同步 | 跨设备进度轮询同步（30s，仅可见标签页）；预留 Durable Object 实时推送升级点 |
@@ -38,11 +38,9 @@ src/                         后端（TypeScript）
   ratelimit.ts               内存固定窗口限流（register/login 防爆破）
   web-vault-visibility.ts    HIDE_WEB_VAULT 判定与 404 响应
   services/
-    storage.ts               Store 接口工厂（env.DB→D1Store，env.KV→KvStore）
+    storage.ts               Store 接口工厂（env.DB→D1Store）
     storage-schema.ts        D1 DDL + ensureSchema（首次请求幂等建表）
     storage-d1.ts            D1Store（registerUser 事务化）
-    storage-kv.ts            KvStore（KV 回退模式）
-    migrate-kv.ts            KV→D1 读穿迁移
 webapp/                      前端（TypeScript）
   index.html                 Vite 入口
   vite.config.ts             构建配置（outDir=../dist）
@@ -52,8 +50,7 @@ webapp/                      前端（TypeScript）
     migrate.ts / scoring.ts / stats.ts / ui.ts / utils.ts / types.ts
     views/{login,home,practice,wrongbook,stats,settings}.ts
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
-wrangler.toml                D1 模式配置（默认）
-wrangler.kv.toml             KV 模式配置
+wrangler.toml                Worker 配置（D1 + assets）
 scripts/
   api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
   e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
@@ -72,7 +69,6 @@ echo 'JWT_SECRET="local-dev-secret-please-change-to-30-plus-random-chars-xxxxx"'
 echo 'ALLOW_DEV_RESET="1"' >> .dev.vars
 
 npm run dev            # wrangler dev（本地 D1 模拟），http://127.0.0.1:8787
-npm run dev:kv         # KV 模式本地开发
 npm run dev:frontend   # 仅前端 Vite dev server（API 需另起）
 ```
 
@@ -91,17 +87,15 @@ npm run build          # vite build webapp（产出 ./dist）+ tsc 类型检查�
 Cloudflare 构建配置：
 
 - **构建命令**：`npm run build`
-- **部署命令**：`npm run deploy`（D1 模式）或 `npm run deploy:kv`（KV 模式）
+- **部署命令**：`npm run deploy`
 
-`wrangler.toml` 的 `[[d1_databases]]` / `[[kv_namespaces]]` **不写 id**，绑定由 Dashboard 注入，
-避免 `wrangler deploy` 自动创建同名资源触发 `code: 10014`（同名 KV namespace 已存在）或占位符校验失败。
+首次部署前创建 D1 数据库并填入 `wrangler.toml`：
 
-部署后在 Dashboard 配两个绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
-
-1. **D1 绑定**：Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → D1 database →
-   变量名填 **`DB`**，数据库选 `quiz-page-db`（没有就先 `npx wrangler d1 create quiz-page-db` 创建）
-2. **KV 绑定**：同一设置页 → 添加 → KV 命名空间 → 变量名填 **`KV`**，选已有的 `quiz-page-kv`
-   （若走 KV 回退模式 `deploy:kv`，只配这个即可；D1 模式下 KV 仅作迁移源）
+```bash
+npx wrangler d1 create quiz-page-db
+# 把返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] database_id
+# （或部署后在 Dashboard → Bindings 绑定 D1 database，变量名 DB）
+```
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
@@ -123,15 +117,6 @@ npx wrangler secret put JWT_SECRET
 > ⚠️ 开启时必须把 `wrangler.toml` 的 `run_worker_first` 改为 `true`，
 > 否则非 `/api` 请求不进入 Worker，拦截不生效。
 
-## KV → D1 数据迁移
-
-若从旧的 KV 版本升级，D1 模式会自动迁移，无需手工导出导入：
-
-1. `wrangler.toml` 中同时保留 `DB`（D1）与 `KV`（旧命名空间）两个绑定（均通过 Dashboard 绑定注入）
-2. 用户表与邀请码在首个请求时批量迁移（`meta.kv_migration_done` 标记防重）
-3. 刷题数据在用户首次访问时读穿迁移（`store:<user>` → D1 后删除源键）
-4. 迁移全部幂等（`INSERT OR IGNORE` / upsert），先写 D1 成功再删 KV，无丢失窗口
-5. 确认迁移完成后，可从 `wrangler.toml` 移除 `[[kv_namespaces]]` 段，并在 Dashboard 解绑 KV
 
 ## API
 
@@ -199,7 +184,7 @@ e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... node s
 
 - v4（2026-10-11）：**架构重构**——后端迁移至 TypeScript（`src/`）、前端迁移至 TypeScript + Vite
   （`webapp/` → `dist/`）；存储从 KV 迁移至 **Cloudflare D1**（schema 首次请求自动初始化、
-  `registerUser` 事务化），提供 KV 回退模式与 **KV→D1 自动读穿迁移**；新增跨设备轮询同步、
+  `registerUser` 事务化，KV 回退模式与 KV→D1 迁移在 v4.1 起移除，历史数据不再迁移）；新增跨设备轮询同步、
   管理员全量备份导出、`HIDE_WEB_VAULT` 前端隐藏开关；api-test 42 断言、e2e 58 断言。
 - v3（2026-10-08）：存储迁移至 Cloudflare Workers KV + JWT 用户体系（首用户自动管理员、
   邀请码注册）、多设备云同步（乐观锁 + 合并）；架构思想对齐 nodewarden：可插拔存储层、
