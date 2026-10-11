@@ -1,26 +1,38 @@
 name = "quiz-page"
-main = "worker/index.js"
+main = "src/index.ts"
 compatibility_date = "2026-10-08"
 
-# 静态资产由平台直接服务；仅 /api/* 走 Worker（不计入静态资源的 Worker 调用）
-# 需要 Wrangler ≥ 4.20。旧环境改为 run_worker_first = true 并在 Worker 内对非 /api 路径 return env.ASSETS.fetch(request)
+# Cloudflare 构建：安装依赖后执行；wrangler deploy 时 esbuild 自动编译 src/*.ts
+[build]
+command = "npm run build"
+
+# 静态资产由平台直接服务（vite 构建产物在 ./dist）；仅 /api/* 走 Worker
+# 开启 HIDE_WEB_VAULT 时必须把 run_worker_first 改为 true（否则非 /api 请求不进 Worker）
+# html_handling 用默认值（/ 解析到 index.html）；not_found_handling=none 保证未知路径 404
 [assets]
-directory = "."
+directory = "./dist"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
-html_handling = "none"
 not_found_handling = "none"
 
-# Cloudflare Workers KV：用户表 / 凭证 / 邀请码 / 每用户刷题数据
-# 两种配置方式二选一：
-#   ① 可视化部署（推荐）：部署成功后到 Cloudflare Dashboard → 该 Worker →
-#      Settings → Bindings → Add → KV Namespace，变量名填 "KV"
-#   ② CLI 部署：取消下面三行注释，id 填 `npx wrangler kv namespace create KV` 返回值
-# [[kv_namespaces]]
-# binding = "KV"
-# id = "your-namespace-id"
-# preview_id = "your-preview-id"
+# D1：用户 / 凭证 / 邀请码 / 刷题数据（schema 首次请求自动初始化，无需手动上传 SQL）
+# 部署前运行：npx wrangler d1 create quiz-page-db   然后把返回的 database_id 填到下方
+[[d1_databases]]
+binding = "DB"
+database_name = "quiz-page-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# 迁移期：旧 KV 命名空间作为「KV→D1 读穿迁移」的数据源
+# 全量迁移完成后可从配置中整段移除（见 README）
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）
+HIDE_WEB_VAULT = "0"
+# "1" 时启用 POST /__dev/reset（清库调试用；生产保持 "0"）
+ALLOW_DEV_RESET = "0"
 
 # JWT_SECRET 用 secret 注入（不写入此文件）：
-#   可视化部署：Dashboard → 该 Worker → Settings → Variables and Secrets → 添加 Runtime Secret
-#   CLI 部署：npx wrangler secret put JWT_SECRET     # 30+ 字符随机串
+#   npx wrangler secret put JWT_SECRET     # 30+ 字符随机串

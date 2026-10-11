@@ -1,236 +1,207 @@
 # 《3-6岁儿童学习与发展指南》刷题手册
 
-刷题网页应用。前端纯静态（原生 HTML+CSS+ES modules，无构建工具），后端为
-**Cloudflare Workers + KV**（参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
-的存储分层模式）：JWT 用户体系，每用户数据隔离存储在 KV，多设备登录自动同步。
+刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**（默认）/ KV（回退模式），
+前端 TypeScript + **Vite** 构建。参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
+的分层架构：可插拔存储、路由中间件、JWT 用户体系、D1 schema 首次请求自动初始化。
 
-题库来自《3-6 岁儿童学习与发展指南 · 考点精编与刷题手册》，题目与解析存放在
-独立的 JSON 文件中，全部在前端加载与判分。
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 后端 | Cloudflare Workers，**TypeScript**（`src/`，wrangler 用 esbuild 编译），零运行时依赖 |
+| 存储 | **Cloudflare D1**（默认）；KV 作为回退模式；通过 `Store` 接口可插拔 |
+| 前端 | **TypeScript** + Vite 构建（vanilla DOM，无框架），构建产物到 `./dist` |
+| 鉴权 | 自实现 JWT(HS256) + PBKDF2-SHA256 密码哈希（Web Crypto，无第三方库） |
+| 同步 | 跨设备进度轮询同步（30s，仅可见标签页）；预留 Durable Object 实时推送升级点 |
 
 ## 功能
 
 - **68 题完整题库**：单选 44 / 多选 10 / 判断 14，全部对照指南原文编写与校订
-- **三种题型即时判分**：单选（含 3 选项与 4 选项）、多选（全对才算对）、判断
-- **清晰作答反馈**：选项选中态高亮，判定后逐条揭示对错并展示解析
-- **双维度筛选**：领域（健康 / 语言 / 社会 / 科学 / 艺术 / 综合）× 题型，可任意组合
-- **正确率统计**：整体、分领域、分题型三组口径，另有总进度
-- **错题本**：答错自动收录并记录错误次数，错题重刷答对一次即自动移出，也支持手动移除
-- **用户体系（JWT）**：注册需邀请码，首个注册用户自动成为管理员；管理员可生成/管理邀请码
-- **云端同步（KV）**：答题数据按用户隔离存于 Cloudflare KV，多设备登录自动同步；
-  写入带乐观锁（409 冲突时按 lastAt 新者胜自动合并），本地旧 v1 数据首次登录自动迁移上云
-- **导入导出**：设置页可导出 / 导入 JSON 备份（兼容 v1 旧备份，自动迁移）
-- **响应式**：移动优先（含 ≤380px 小屏优化、触控目标 ≥40px、无横向滚动），桌面端内容列限宽 720px 居中
+- **三种题型即时判分**、选项选中态、判定后展示解析
+- **双维度筛选**：领域 × 题型任意组合；**正确率/进度统计**（整体、分领域、分题型）
+- **错题本**：答错自动收录，重刷答对自动移出，支持手动移除
+- **用户体系**：注册需邀请码（一次性），**首个注册用户自动成为管理员**
+- **云端同步**：数据按用户隔离存于 D1，多设备登录自动同步（乐观锁 + lastAt 新者胜合并）
+- **管理员能力**：生成/管理邀请码；导出全站全量备份（JSON）
+- **可选隐藏前端**：`HIDE_WEB_VAULT=1` 时前端 404，仅保留 API
+- **响应式**：移动优先（≤380px 优化），桌面端内容列限宽 720px
 
 ## 目录结构
 
 ```
-index.html                     入口页面
-wrangler.toml                  Cloudflare Workers 部署配置（assets + KV binding）
-.assetsignore                  静态资产排除清单（防止 worker 源码/文档被部署）
-css/style.css                  全部样式
-js/
-  main.js                      启动：加载题库 → 鉴权 → 拉云端数据 → 注册视图 → 启路由
-  router.js                    hash 路由 + 登录守卫
-  state.js                     题库加载与内存状态 + 发布订阅
-  auth.js                      JWT token 存取、带鉴权 fetch、注册/登录/登出
-  storage.js                   存储层：内存 cache + KV 同步（debounce 推送 + 乐观锁 + flush）
-  migrate.js                   v1→v2 数据迁移（F→S id 映射、剔除已删题记录）
-  scoring.js                   判分核心（单选 / 多选 / 判断）
-  stats.js                     统计口径计算
-  ui.js                        复用展示片段与 toast
-  utils.js                     通用工具
-  views/
-    login.js                   登录/注册（双 tab，邀请码输入）
-    home.js                    首页：进度总览 + 筛选 + 入口
-    practice.js                刷题页：三种题型渲染与交互
-    wrongbook.js               错题本
-    stats.js                   统计页
-    settings.js                设置页（账号 / 数据管理 / 管理员邀请码 / 关于）
-worker/                        Cloudflare Worker 后端（纯 JS ES Module，零 npm 依赖）
-  index.js                     fetch 入口：/api/* → routes，其余 → 静态资产
-  auth.js                      JWT(HS256) 签发/校验、PBKDF2 密码哈希、邀请码生成
-  store.js                     可插拔存储层（KvStore 实现 + createStore 工厂，预留 R2）
-  router.js                    轻量路由 + 中间件链（requireAuth/requireAdmin + 响应助手）
-  ratelimit.js                 内置限流（内存固定窗口，register/login 防爆破）
-  routes.js                    9 个业务 handler + 路由表装配
-data/questions.json            题库（唯一数据文件，静态资产）
+src/                         后端（TypeScript）
+  index.ts                   Worker 入口：HIDE_WEB_VAULT → /api/* → ASSETS 兜底
+  types.ts                   Env / Store 接口 / 领域类型
+  router.ts                  注册式路由表 + requireAuth/requireAdmin 中间件 + 响应助手
+  routes.ts                  11 个 handler + 路由装配
+  auth.ts                    PBKDF2 密码哈希 / HS256 JWT / 邀请码
+  ratelimit.ts               内存固定窗口限流（register/login 防爆破）
+  web-vault-visibility.ts    HIDE_WEB_VAULT 判定与 404 响应
+  services/
+    storage.ts               Store 接口工厂（env.DB→D1Store，env.KV→KvStore）
+    storage-schema.ts        D1 DDL + ensureSchema（首次请求幂等建表）
+    storage-d1.ts            D1Store（registerUser 事务化）
+    storage-kv.ts            KvStore（KV 回退模式）
+    migrate-kv.ts            KV→D1 读穿迁移
+webapp/                      前端（TypeScript）
+  index.html                 Vite 入口
+  vite.config.ts             构建配置（outDir=../dist）
+  public/data/questions.json 题库（构建时原样进 dist）
+  src/
+    main.ts / router.ts / state.ts / auth.ts / storage.ts / sync.ts
+    migrate.ts / scoring.ts / stats.ts / ui.ts / utils.ts / types.ts
+    views/{login,home,practice,wrongbook,stats,settings}.ts
+dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
+wrangler.toml                D1 模式配置（默认）
+wrangler.kv.toml             KV 模式配置
 scripts/
-  dev-server.mjs               本地开发服务器（内存 mock KV + 静态资产 + /api 路由）
-  api-test.mjs                 API 冒烟测试（42 断言，直接调 handleApi，无需起服务）
-  e2e-check.js                 端到端浏览器测试（Puppeteer，58 断言，需 dev-server）
-  extract_questions.py         从手册 HTML 提取题库 v1（一次性，不部署）
-  rebuild_questions_v2.py      题库 v1→v2 重建（幂等）
-  validate_questions.py        题库结构与完整性校验
-  review_report.md             领域打标复核报告（由提取脚本生成）
+  api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
+  e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
+  validate_questions.py      题库结构校验
+  extract_questions.py / rebuild_questions_v2.py   题库生成/重建
 ```
 
 ## 本地开发
 
-不需要 Cloudflare 账号，Node 22+ 即可：
-
 ```bash
-# 1. 配置本地 JWT_SECRET（.dev.vars 已 gitignore）
+npm install
+
+# 配置本地 secrets（.dev.vars 已 gitignore）
+#   JWT_SECRET="...30+ 字符随机串..."
+#   ALLOW_DEV_RESET="1"        # 仅本地：启用 POST /api/dev/reset 清库
 echo 'JWT_SECRET="local-dev-secret-please-change-to-30-plus-random-chars-xxxxx"' > .dev.vars
+echo 'ALLOW_DEV_RESET="1"' >> .dev.vars
 
-# 2. 启动本地服务器（默认 http://127.0.0.1:8123）
-npm run dev        # 等价于 node scripts/dev-server.mjs
-
-# 3. 浏览器访问 http://127.0.0.1:8123 —— 首个注册用户自动成为管理员
+npm run dev            # wrangler dev（本地 D1 模拟），http://127.0.0.1:8787
+npm run dev:kv         # KV 模式本地开发
+npm run dev:frontend   # 仅前端 Vite dev server（API 需另起）
 ```
 
-dev-server 使用内存 mock KV（重启即清空），KV 接口与 Cloudflare 一致（get/put/delete/list）。
-调试钩子：`POST /__dev/kv-reset` 清空数据，`GET /__dev/kv-dump` 列出全部 key。
+首个注册用户自动成为管理员，无需邀请码。
 
-也可以用真实的 `wrangler dev`（本地 miniflare KV 模拟，端口 8787），
-需先完成下方部署配置中的 KV namespace 创建。
+## 构建与部署
 
-## 可视化快速部署
-
-1. Fork 本仓库到自己的 GitHub 账号（或直接使用你已推送的 `lzk504/quiz-page`）
-2. 进入 [Cloudflare Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages/create) → Create → Workers → **Continue with GitHub** → 选择你的仓库
-3. 构建命令**留空**（纯 JS ES Module，无构建步骤）；部署命令保持默认 `npx wrangler deploy`
-4. 等部署完成后，到该 Worker 的 **Settings → Bindings** 添加 KV Namespace：变量名填 `KV`，选择或新建一个 namespace
-5. 同在 **Settings → Variables and Secrets** 添加 `JWT_SECRET`（30+ 字符随机串，必须为 Runtime Secret 而非 Build variable）
-6. 打开生成的 Workers 域名，**第一个注册的用户自动成为管理员**（无需邀请码）；之后注册需向管理员索取邀请码
-
-- Workers 默认域名在部分网络不可直连。如需自定义域名，到 [Workers 设置](https://dash.cloudflare.com/?to=/:account/workers/services/view/quiz-page/production/settings)里添加。
-- 页面提示缺少 `JWT_SECRET` 时，到 Workers 设置里添加 Secret。正式环境至少使用 30 个字符以上的随机字符串，不要使用临时值或示例值。`JWT_SECRET` 属于运行时凭据，不要写进 `wrangler.toml` 或代码仓库。
-- 部署后用 curl 抽查以下路径应返回 404（`.assetsignore` 已排除源码/文档/脚本，防止泄露）：
-  ```
-  /worker/index.js  /README.md  /scripts/e2e-check.js  /wrangler.toml
-  ```
-- `run_worker_first = ["/api/*"]` 需要 Wrangler ≥ 4.20；旧环境改为 `run_worker_first = true`（`worker/index.js` 已有 `env.ASSETS.fetch` 兜底，功能不变）。
-
-## 常见问题
-
-- **首次注册为何不要求邀请码？**
-  首位注册用户自动成为管理员，无需邀请码；之后注册需一次性邀请码（管理员在设置页生成并管理）。
-
-- **删掉部署后重新部署，为什么注册又开始要求邀请码？**
-  删除 Worker 或重新部署并不会删除已创建的 KV 数据，`users` 表中的用户记录仍然存在，因此重新部署后系统仍判定"已初始化"并继续要求邀请码。如果希望完全重新开始，需要同时删除对应的 **KV namespace**。
-
-- **我配置了 `JWT_SECRET`，为什么页面仍然提示缺少？**
-  请将 `JWT_SECRET` 配置在 Cloudflare Workers 的 **Settings → Variables and Secrets** 中，并确保它属于 **Runtime variables and secrets**，而不是 **Build variables**。Build 阶段的变量只在构建过程中可用，Worker 运行时无法读取。
-
-- **KV 绑定怎么配？`wrangler.toml` 里为什么没有 KV id？**
-  可视化部署在 Dashboard → 该 Worker → Settings → Bindings 添加 KV Namespace（变量名必须填 `KV`），dashboard 绑定在 Workers Builds 流程中跨 redeploy 持久、与 wrangler.toml 合并，所以仓库里不需要硬编码 id。CLI 部署则取消 `wrangler.toml` 中 kv 块的注释并填入 `npx wrangler kv namespace create KV` 返回的真实 id。
-
-## 更新方法
-
-- 拉取上游并重新部署：
-  ```bash
-  git pull
-  npx wrangler deploy
-  ```
-- 或在 Cloudflare 面板中 Sync fork → Update branch，然后触发重新部署。
-
-## CLI 部署
+### 构建
 
 ```bash
-git clone https://github.com/lzk504/quiz-page.git
-cd quiz-page
-
-npx wrangler login
-npx wrangler kv namespace create KV        # 取消 wrangler.toml 中 kv 块注释，把返回 id 填入
-npx wrangler secret put JWT_SECRET         # 30+ 字符随机串
-npx wrangler deploy
-
-# 本地开发（无需 Cloudflare 账号，内存 mock KV）
-npm run dev                                  # http://127.0.0.1:8123
+npm run build          # vite build webapp（产出 ./dist）+ tsc 类型检查（前后端）
 ```
+
+### 部署（Cloudflare Workers）
+
+Cloudflare 构建配置：
+
+- **构建命令**：`npm run build`
+- **部署命令**：`npm run deploy`（D1 模式）或 `npm run deploy:kv`（KV 模式）
+
+首次部署前需创建 D1 数据库并填入配置：
+
+```bash
+npx wrangler d1 create quiz-page-db
+# 把返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] database_id
+```
+
+设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
+
+```bash
+npx wrangler secret put JWT_SECRET
+# 或 Dashboard → 该 Worker → Settings → Variables and Secrets → 添加 Runtime Secret
+```
+
+**D1 schema 首次请求自动初始化**，无需手动上传 SQL。
+
+> ⚠️ `JWT_SECRET` 必须配在 **Runtime variables and secrets**，不能配成 Build variable
+> （Build 阶段变量运行时读不到，页面会一直提示缺少）。
+
+### 隐藏 Web 前端（可选）
+
+在 Workers 的 Settings → Variables and Secrets 添加文本变量 `HIDE_WEB_VAULT` 并设为 `1`。
+启用后非 `/api` 路径统一返回 404，API 保持可用；删除该变量或改为非 `1` 即恢复。
+
+> ⚠️ 开启时必须把 `wrangler.toml` 的 `run_worker_first` 改为 `true`，
+> 否则非 `/api` 请求不进入 Worker，拦截不生效。
+
+## KV → D1 数据迁移
+
+若从旧的 KV 版本升级，D1 模式会自动迁移，无需手工导出导入：
+
+1. `wrangler.toml` 中同时保留 `DB`（D1）与 `KV`（旧命名空间）两个绑定
+2. 用户表与邀请码在首个请求时批量迁移（`meta.kv_migration_done` 标记防重）
+3. 刷题数据在用户首次访问时读穿迁移（`store:<user>` → D1 后删除源键）
+4. 迁移全部幂等（`INSERT OR IGNORE` / upsert），先写 D1 成功再删 KV，无丢失窗口
+5. 确认迁移完成后，可从 `wrangler.toml` 移除 `[[kv_namespaces]]` 段
 
 ## API
 
 | 端点 | 鉴权 | 说明 |
 |---|---|---|
-| `POST /api/register` | 无 | `{username, password, inviteCode?}`；首用户免邀请码且 role=admin；返回 `{token, user}` |
-| `POST /api/login` | 无 | `{username, password}`；返回 `{token, user}`（JWT，7 天有效） |
+| `GET /api/bootstrap` | 无 | `{initialized}` 系统是否已有用户 |
+| `POST /api/register` | 无 | 首用户免邀请码且 role=admin；返回 `{token, user}` |
+| `POST /api/login` | 无 | 返回 `{token, user}`（JWT，7 天有效） |
 | `GET /api/me` | Bearer | 当前用户信息 |
-| `GET /api/store` | Bearer | 当前用户刷题数据 `{store, updatedAt}`；无数据时 `store: null` |
-| `PUT /api/store` | Bearer | `{store, baseUpdatedAt}`；乐观锁，云端较新时返回 409 + `serverUpdatedAt` |
+| `GET /api/store` | Bearer | `{store, updatedAt}`；无数据时 `store: null` |
+| `PUT /api/store` | Bearer | `{store, baseUpdatedAt}`；乐观锁，云端较新时 409 + `serverUpdatedAt` |
 | `DELETE /api/store` | Bearer | 清空当前用户数据 |
 | `POST /api/invites` | Bearer+admin | 生成一次性邀请码（16 字符） |
 | `GET /api/invites` | Bearer+admin | 邀请码列表 |
+| `GET /api/admin/backup` | Bearer+admin | 全站全量备份 JSON（含密码哈希，妥善保管） |
+| `POST /api/dev/reset` | 无 | 清库（仅 `ALLOW_DEV_RESET=1` 时注册生效，生产保持关闭） |
 
 错误格式：`{error: <code>, message: <zh>}`；状态码 400/401/403/404/409/429/500。
-KV Schema：`users`（用户表）/ `user:<username>:auth`（凭证）/ `invite:<code>`（邀请码）/ `store:<username>`（刷题数据，与前端 v2 schema 同形）。
-后端通过 `worker/store.js` 的可插拔存储层访问 KV，key 命名是公开契约（勿改）；将来加 R2 后端只需实现 `R2Store` 并在 `createStore` 加分支。
+
+### D1 Schema
+
+```sql
+users        (username PK, id, password_salt_hex, password_hash_hex, role, created_at)
+invites      (code PK, created_by, created_at, used_by, used_at)
+quiz_stores  (username PK, data JSON, updated_at)
+meta         (key PK, value)     -- kv_migration_done 等
+```
+
+`registerUser` 用 `db.batch()` 事务保证「建号 + 核销邀请码」原子性，用户名唯一约束兜底并发注册。
+
+## 测试
+
+```bash
+npm test                # API 冒烟测试（tsx + MockStore，42 断言，无需起服务）
+npm run validate        # 题库结构校验
+npm run dev &           # 起 wrangler dev（D1 模式）
+node scripts/e2e-check.js   # 端到端（58 断言，Puppeteer + 本机 Chrome）
+```
+
+e2e 覆盖：未登录重定向、首用户注册（自动 admin）、题库结构、三种题型判分、错题本、
+统计、设置页账号/邀请码、刷新持久化（云端拉回）、360px/桌面端布局、深链接筛选、
+v1→v2 首次上云迁移、登出登录 round-trip、数据隔离、邀请码一次性、重复用户名 409、
+无 token 401、token 篡改跳登录。
+
+e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... node scripts/e2e-check.js`
+指向任意部署做验证。
 
 ## 维护题库
 
-题库文件是 `data/questions.json`，顶层为 `meta` + `questions` 数组。
+题库文件是 `webapp/public/data/questions.json`，顶层为 `meta` + `questions` 数组。
 
-### 字段说明
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 全局唯一。`S`单选 / `M`多选 / `J`判断 + 两位序号（v2 起允许缺口） |
+| `type` | string | `single` / `multiple` / `judge` |
+| `domain` | string | `health` / `language` / `society` / `science` / `art` / `general` |
+| `stem` | string | 题干，保留 `（　　）` 占位 |
+| `options` | string[] | 选项文本（判断题为 `null`） |
+| `answer` | 见下 | 单选 `"B"` / 多选 `["A","B"]`（全对才算对）/ 判断 `false` |
+| `analysis` | string | 解析，引用指南原文 |
 
-| 字段 | 类型 | 适用题型 | 说明 |
-|---|---|---|---|
-| `id` | string | 全部 | 全局唯一。`S`=单选 / `M`=多选 / `J`=判断 + 两位序号（v2 起允许缺口：S02/S05/S06、J04 已删除） |
-| `type` | string | 全部 | `single` / `multiple` / `judge` |
-| `domain` | string | 全部 | `health` / `language` / `society` / `science` / `art` / `general` |
-| `stem` | string | 全部 | 题干，保留 `（　　）` 占位 |
-| `options` | string[] | 选择 | 选项文本（不含 `A.` 前缀）。单选 3~4 项、多选 4~5 项；判断题为 `null` |
-| `answer` | 见下 | 全部 | 按题型结构不同 |
-| `analysis` | string | 全部 | 解析，引用指南原文 |
-
-`answer` 结构：
-
-```jsonc
-// single
-"B"
-
-// multiple —— 全对才算对
-["A", "B", "C"]
-
-// judge
-false
-```
-
-### 新增题目
-
-直接编辑 `data/questions.json`，追加到 `questions` 数组即可，同时更新 `meta.counts`。
-答题记录以 `id` 为键，新增题目不会影响已有记录。**不要复用已删除的 id**
-（S02/S05/S06、J04、F01-F16、SA01-SA08），避免与老用户的历史记录错位。
-
-### 校验与测试
-
-```bash
-python scripts/validate_questions.py    # 题库结构硬断言（失败返回非零退出码）
-
-node scripts/api-test.mjs               # API 冒烟测试（无需起服务，42 断言）
-npm run dev &                           # 起本地 dev-server（8123）
-node scripts/e2e-check.js               # 端到端（58 断言，含注册/邀请码/隔离/迁移）
-```
-
-e2e 覆盖 58 项断言：未登录重定向、首用户注册（自动 admin）、题库结构、三种题型判分、
-选中态反馈、错题本、统计、设置页账号/邀请码区、刷新持久化（云端拉回）、
-360px 窄屏 / 桌面端限宽、深链接筛选、v1→v2 首次上云迁移（F→S 映射 / 剔孤儿 / 清本地源）、
-登出登录 round-trip、错误密码提示、数据隔离（A/B 互不可见）、邀请码一次性、
-重复用户名 409、无 token 401、token 篡改跳登录。截图输出到 `scripts/_shots/`。
-
-## 数据与安全说明
-
-- 刷题数据按用户隔离存储在 Cloudflare KV（`store:<username>`），与前端 v2 schema 同形；
-  多设备登录自动同步，写入带 `baseUpdatedAt` 乐观锁，冲突时按 lastAt 新者胜自动合并
-- 密码以 PBKDF2-SHA256（100k 迭代 + 16 字节随机盐）存储，不存明文；
-  JWT 用 HS256 签名，secret 由 `JWT_SECRET` 提供（30+ 字符）
-- 浏览器仅保存 JWT token（`quizapp.token.v1`）；本地旧版 `quizapp.data.v1` 数据在
-  首次登录后自动迁移上云并清源
-- 注册/登录内置限流（`worker/ratelimit.js`，10 次/分钟/IP，429），防爆破；
-  纯内存实现避免消耗 KV 免费写额度，分布式攻击建议叠加 Cloudflare Dashboard 的 Rate Limiting Rules
-- KV 为最终一致存储，单用户多设备极端并发写可能短暂覆盖，乐观锁 + 合并将影响降到最低
+直接编辑 JSON 追加题目即可，同时更新 `meta.counts`。**不要复用已删除的 id**
+（S02/S05/S06、J04、F01-F16、SA01-SA08），避免与老用户历史记录错位。
 
 ## 更新日志
 
-- v4（2026-10-08）：对齐 nodewarden 架构思想——① 可插拔存储层（`worker/store.js`，
-  业务只依赖逻辑接口，预留 R2 后端）② 路由中间件化（`worker/router.js`，注册式路由表 +
-  requireAuth/requireAdmin 中间件，与原 if-else 零行为差异）③ 内置限流（`worker/ratelimit.js`，
-  register/login 10 次/分钟/IP 防爆破）。API 冒烟测试增至 42 断言，e2e 58 断言不变。
-- v3（2026-10-08）：存储迁移——localStorage 迁移至 Cloudflare Workers KV（参考 nodewarden
-  模式），新增 JWT 用户体系（首用户自动管理员、邀请码注册）、多设备云同步（乐观锁 + 合并）、
-  登录守卫与登录/注册视图；Worker 后端零 npm 依赖；本地 dev-server（mock KV）+ API 冒烟 +
-  e2e 重构（58 断言）。
-- v2（2026-10-04）：题库重构——填空题全部改写为 A/B/C 单选（S25-S40），移除简答题，
-  删除重复考点（S02/S05/S06/J04），修复 M01/M08/S16，按指南原文新编 10 题（S41-S47/J13-J15），
-  共 68 题；UI 蓝色系现代化精修 + 小屏适配强化；本地数据 v1→v2 自动迁移。
-- v1（2026-10-01）：首版。70 题题库、四种客观题判分、简答背诵自评、双维度筛选、
-  错题本、统计、导入导出、响应式布局。
+- v4（2026-10-11）：**架构重构**——后端迁移至 TypeScript（`src/`）、前端迁移至 TypeScript + Vite
+  （`webapp/` → `dist/`）；存储从 KV 迁移至 **Cloudflare D1**（schema 首次请求自动初始化、
+  `registerUser` 事务化），提供 KV 回退模式与 **KV→D1 自动读穿迁移**；新增跨设备轮询同步、
+  管理员全量备份导出、`HIDE_WEB_VAULT` 前端隐藏开关；api-test 42 断言、e2e 58 断言。
+- v3（2026-10-08）：存储迁移至 Cloudflare Workers KV + JWT 用户体系（首用户自动管理员、
+  邀请码注册）、多设备云同步（乐观锁 + 合并）；架构思想对齐 nodewarden：可插拔存储层、
+  路由中间件化、内置限流。
+- v2（2026-10-04）：题库重构为 68 题 + UI 现代化精修 + 数据 v1→v2 迁移。
+- v1（2026-10-01）：首版。

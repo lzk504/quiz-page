@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "3-6岁儿童学习与发展指南_考点精编与刷题手册.html"
-OUT_JSON = ROOT / "data" / "questions.json"
+OUT_JSON = ROOT / "webapp" / "public" / "data" / "questions.json"
 OUT_REPORT = ROOT / "scripts" / "review_report.md"
 
 # --------------------------------------------------------------------------

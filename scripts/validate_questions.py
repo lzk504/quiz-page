@@ -20,7 +20,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-JSON_PATH = ROOT / "data" / "questions.json"
+JSON_PATH = ROOT / "webapp" / "public" / "data" / "questions.json"
 
 EXPECTED = {"single": 44, "multiple": 10, "judge": 14}
 DOMAINS = {"health", "language", "society", "science", "art", "general"}

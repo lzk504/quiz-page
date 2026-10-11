@@ -1,5 +1,6 @@
 /**
- * 端到端验证（需先启动 dev-server：node scripts/dev-server.mjs）。
+ * 端到端验证（需先启动 `npm run dev`，即 wrangler dev，默认 127.0.0.1:8787）。
+ * 可用 E2E_TARGET 指向任意部署（如 https://quiz-page.xxx.workers.dev）。
  * 流程：未登录重定向 → 注册首用户 admin → 刷题 → 错题本/统计/设置 → 邀请码 →
  *       持久化 → 响应式/深链接 → v1→v2 首次上云迁移 → 登出/登录 → 隔离/鉴权 → 截图。
  * 用法：node scripts/e2e-check.js [baseUrl] [outDir]
@@ -8,7 +9,7 @@ import path from "node:path";
 import fs from "node:fs";
 import puppeteer from "puppeteer";
 
-const BASE = process.argv[2] || "http://127.0.0.1:8123";
+const BASE = process.argv[2] || process.env.E2E_TARGET || "http://127.0.0.1:8787";
 const OUT = process.argv[3] || path.join(process.cwd(), "scripts", "_shots");
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 
@@ -28,8 +29,8 @@ const USERB_PW = `Pass${rnd()}2`;
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
 
-  // 重置 mock KV，保证本次运行是"首用户"场景
-  await fetch(`${BASE}/__dev/kv-reset`, { method: "POST" }).catch(() => {});
+  // 重置后端数据（仅 ALLOW_DEV_RESET=1 时生效），保证本次运行是「首用户」场景
+  await fetch(`${BASE}/api/dev/reset`, { method: "POST" }).catch(() => {});
 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -184,7 +185,7 @@ const USERB_PW = `Pass${rnd()}2`;
 
   // 导出结构
   const exported = await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
+    const m = window.__quiz.storage;
     const t = m.exportJson();
     const parsed = JSON.parse(t);
     const check = m.validateImport(t);
@@ -211,7 +212,7 @@ const USERB_PW = `Pass${rnd()}2`;
   const persistedHash = await page.evaluate(() => location.hash);
   ok("刷新后保持登录", persistedHash !== "#/login", `实际 ${persistedHash}`);
   const persisted = await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
+    const m = window.__quiz.storage;
     return Object.keys(m.getStore().records).length;
   });
   ok("刷新后记录从云端拉回", persisted > 0, `${persisted} 条记录`);
@@ -248,7 +249,7 @@ const USERB_PW = `Pass${rnd()}2`;
   const token = await page.evaluate(() => localStorage.getItem("quizapp.token.v1"));
   // 先在应用内 clearAll（清云端 + cache 置空），再显式 DELETE 兜底，再注入本地 v1，reload 触发迁移
   await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
+    const m = window.__quiz.storage;
     m.clearAll();
     // 显式 DELETE 确保云端为空
     await fetch("/api/store", {
@@ -271,7 +272,7 @@ const USERB_PW = `Pass${rnd()}2`;
   await page.reload({ waitUntil: "networkidle2" });
   await sleep(800);
   const mig = await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
+    const m = window.__quiz.storage;
     const s = m.getStore();
     return {
       version: s.version,
@@ -322,7 +323,7 @@ const USERB_PW = `Pass${rnd()}2`;
   await page.waitForSelector(".hero");
   ok("正确登录后回 home", (await page.evaluate(() => location.hash)) === "#/home");
   const dataBack = await page.evaluate(async () => {
-    const m = await import("/js/storage.js");
+    const m = window.__quiz.storage;
     return Object.keys(m.getStore().records).length;
   });
   ok("登录后数据回来（含迁移的 S25）", dataBack > 0, `${dataBack} 条`);

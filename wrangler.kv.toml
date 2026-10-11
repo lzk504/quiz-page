@@ -1,15 +1,23 @@
 name = "quiz-page"
-main = "worker/index.js"
+main = "src/index.ts"
 compatibility_date = "2026-10-08"
 
+[build]
+command = "npm run build"
+
 [assets]
-directory = "."
+directory = "./dist"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
-html_handling = "none"
 not_found_handling = "none"
 
-# Cloudflare Workers KV：用户表 / 凭证 / 邀请码 / 每用户刷题数据
+# KV 回退模式：不使用 D1。部署命令 `npm run deploy:kv`
 # KV 命名空间通过 Cloudflare Dashboard → 该 Worker → Settings → Bindings 绑定，变量名 "KV"
 [[kv_namespaces]]
 binding = "KV"
+
+[vars]
+HIDE_WEB_VAULT = "0"
+ALLOW_DEV_RESET = "0"
+
+# JWT_SECRET 用 secret 注入：npx wrangler secret put JWT_SECRET     # 30+ 字符随机串

@@ -13,7 +13,7 @@ import json
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "data" / "questions.json"
+SRC = ROOT / "webapp" / "public" / "data" / "questions.json"
 
 REMOVE_IDS = {f"SA{i:02d}" for i in range(1, 9)} | {"S02", "S05", "S06", "J04"} | {f"F{i:02d}" for i in range(1, 17)}
 
