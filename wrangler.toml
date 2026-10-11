@@ -16,11 +16,10 @@ run_worker_first = ["/api/*"]
 not_found_handling = "none"
 
 # D1：用户信息 / 凭证 / 邀请码 / 刷题进度（schema 首次请求自动初始化，无需手动上传 SQL）
-# 部署前运行 npx wrangler d1 create quiz-page-db，把返回的 database_id 填入下方
 [[d1_databases]]
 binding = "DB"
 database_name = "quiz-page-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "aa8200cf-fc15-4db1-9e46-e404fcf74215"
 
 [vars]
 # "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）
