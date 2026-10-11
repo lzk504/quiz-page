@@ -31,6 +31,9 @@ build/
 scripts/_shots/
 *.log
 
+# ---------- 本地题库工具链（仅本地生成/校验 webapp/public/data/questions.json，不参与构建与部署）----------
+scripts/*.py
+
 # ---------- Agent / 编辑器 / 系统 ----------
 .workbuddy/
 .vscode/

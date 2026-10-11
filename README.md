@@ -57,8 +57,7 @@ wrangler.kv.toml             KV 模式配置
 scripts/
   api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
   e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
-  validate_questions.py      题库结构校验
-  extract_questions.py / rebuild_questions_v2.py   题库生成/重建
+  *.py                       题库生成/校验脚本（本地工具链，已 gitignore，不入库）
 ```
 
 ## 本地开发
@@ -164,7 +163,6 @@ meta         (key PK, value)     -- kv_migration_done 等
 
 ```bash
 npm test                # API 冒烟测试（tsx + MockStore，42 断言，无需起服务）
-npm run validate        # 题库结构校验
 npm run dev &           # 起 wrangler dev（D1 模式）
 node scripts/e2e-check.js   # 端到端（58 断言，Puppeteer + 本机 Chrome）
 ```
