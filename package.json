@@ -3,7 +3,7 @@
   "private": true,
   "version": "4.0.0",
   "type": "module",
-  "description": "《3-6岁儿童学习与发展指南》刷题手册 — Cloudflare Workers + KV + TypeScript",
+  "description": "《3-6岁儿童学习与发展指南》刷题手册 — Cloudflare Workers + D1 + TypeScript",
   "scripts": {
     "dev": "wrangler dev",
     "dev:frontend": "vite webapp",

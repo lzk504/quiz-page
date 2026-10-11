@@ -1,15 +1,15 @@
 # 《3-6岁儿童学习与发展指南》刷题手册
 
-刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **KV**，
+刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**，
 前端 TypeScript + **Vite** 构建。参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
-的分层架构：可插拔存储、路由中间件、JWT 用户体系。
+的分层架构：可插拔存储、路由中间件、JWT 用户体系、D1 schema 首次请求自动初始化。
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
 | 后端 | Cloudflare Workers，**TypeScript**（`src/`，wrangler 用 esbuild 编译），零运行时依赖 |
-| 存储 | **Cloudflare Workers KV**（唯一后端）；通过 `Store` 接口抽象 |
+| 存储 | **Cloudflare D1**（唯一后端）；通过 `Store` 接口抽象 |
 | 前端 | **TypeScript** + Vite 构建（vanilla DOM，无框架），构建产物到 `./dist` |
 | 鉴权 | 自实现 JWT(HS256) + PBKDF2-SHA256 密码哈希（Web Crypto，无第三方库） |
 | 同步 | 跨设备进度轮询同步（30s，仅可见标签页）；预留 Durable Object 实时推送升级点 |
@@ -21,7 +21,7 @@
 - **双维度筛选**：领域 × 题型任意组合；**正确率/进度统计**（整体、分领域、分题型）
 - **错题本**：答错自动收录，重刷答对自动移出，支持手动移除
 - **用户体系**：注册需邀请码（一次性），**首个注册用户自动成为管理员**
-- **云端同步**：数据按用户隔离存于 KV，多设备登录自动同步（乐观锁 + lastAt 新者胜合并）
+- **云端同步**：数据按用户隔离存于 D1，多设备登录自动同步（乐观锁 + lastAt 新者胜合并）
 - **管理员能力**：生成/管理邀请码；导出全站全量备份（JSON）
 - **可选隐藏前端**：`HIDE_WEB_VAULT=1` 时前端 404，仅保留 API
 - **响应式**：移动优先（≤380px 优化），桌面端内容列限宽 720px
@@ -38,8 +38,9 @@ src/                         后端（TypeScript）
   ratelimit.ts               内存固定窗口限流（register/login 防爆破）
   web-vault-visibility.ts    HIDE_WEB_VAULT 判定与 404 响应
   services/
-    storage.ts               Store 接口工厂（env.KV→KvStore）
-    storage-kv.ts            KvStore（KV 唯一后端，key 命名见下）
+    storage.ts               Store 接口工厂（env.DB→D1Store）
+    storage-schema.ts        D1 DDL + ensureSchema（首次请求幂等建表）
+    storage-d1.ts            D1Store（registerUser 事务化）
 webapp/                      前端（TypeScript）
   index.html                 Vite 入口
   vite.config.ts             构建配置（outDir=../dist）
@@ -49,7 +50,7 @@ webapp/                      前端（TypeScript）
     migrate.ts / scoring.ts / stats.ts / ui.ts / utils.ts / types.ts
     views/{login,home,practice,wrongbook,stats,settings}.ts
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
-wrangler.toml                Worker 配置（KV + assets）
+wrangler.toml                Worker 配置（D1 + assets）
 scripts/
   api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
   e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
@@ -67,7 +68,7 @@ npm install
 echo 'JWT_SECRET="local-dev-secret-please-change-to-30-plus-random-chars-xxxxx"' > .dev.vars
 echo 'ALLOW_DEV_RESET="1"' >> .dev.vars
 
-npm run dev            # wrangler dev（本地 KV 模拟），http://127.0.0.1:8787
+npm run dev            # wrangler dev（本地 D1 模拟），http://127.0.0.1:8787
 npm run dev:frontend   # 仅前端 Vite dev server（API 需另起）
 ```
 
@@ -88,15 +89,13 @@ Cloudflare 构建配置：
 - **构建命令**：`npm run build`
 - **部署命令**：`npm run deploy`
 
-`wrangler.toml` 的 `[[kv_namespaces]]` **不写 id**，KV 绑定由 Dashboard 注入，避免
-`wrangler deploy` 因占位符 id 校验失败（`code: 10042`）。
+首次部署前创建 D1 数据库并填入 `wrangler.toml`：
 
-部署后在 Dashboard 配置 KV 绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
-
-1. 创建 KV namespace（若没有）：Dashboard → 存储和数据库 → KV → 创建命名空间
-   （或 `npx wrangler kv namespace create KV`）
-2. 绑定：Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → KV 命名空间 →
-   变量名填 **`KV`** → 选刚才的 namespace → 保存部署
+```bash
+npx wrangler d1 create quiz-page-db
+# 把返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] database_id
+# （或部署后在 Dashboard → Bindings 绑定 D1 database，变量名 DB）
+```
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
@@ -104,6 +103,8 @@ Cloudflare 构建配置：
 npx wrangler secret put JWT_SECRET
 # 或 Dashboard → 该 Worker → Settings → Variables and Secrets → 添加 Runtime Secret
 ```
+
+**D1 schema 首次请求自动初始化**，无需手动上传 SQL。
 
 > ⚠️ `JWT_SECRET` 必须配在 **Runtime variables and secrets**，不能配成 Build variable
 > （Build 阶段变量运行时读不到，页面会一直提示缺少）。
@@ -134,26 +135,24 @@ npx wrangler secret put JWT_SECRET
 
 错误格式：`{error: <code>, message: <zh>}`；状态码 400/401/403/404/409/429/500。
 
-### KV 存储结构
+### D1 Schema
 
-数据按用户隔离存于 Cloudflare Workers KV，key 命名是「公开契约」，逐字不可改：
+```sql
+users        (username PK, id, password_salt_hex, password_hash_hex, role, created_at)
+invites      (code PK, created_by, created_at, used_by, used_at)
+quiz_stores  (username PK, data JSON, updated_at)
+meta         (key PK, value)
+```
 
-| KV key | 内容 | 说明 |
-|---|---|---|
-| `users` | `{version, count, byUsername}` | 用户索引表（blob），`byUsername` 存 `{id, role, createdAt}` |
-| `user:<username>:auth` | `{id, username, passwordHash:{saltHex,hashHex}, role, createdAt}` | 单用户凭证（含 PBKDF2 密码哈希） |
-| `invite:<code>` | `{code, createdBy, createdAt, usedBy, usedAt}` | 一次性邀请码 |
-| `store:<username>` | `{version, records, wrongbook, updatedAt}` | 单用户刷题数据（与前端 v2 schema 同形） |
-
-`registerUser` 依次写 `user:<u>:auth` + `users` + 邀请码核销（三次独立写，KV 模式下非事务，
-与历史行为一致）。KV 为最终一致存储，单用户多设备极端并发写可能短暂覆盖，由前端
-乐观锁（`baseUpdatedAt` + 409 合并）兜底。
+`schema` 首次请求由 `ensureSchema` 自动建表（`CREATE TABLE IF NOT EXISTS`，幂等）。
+`registerUser` 用 `db.batch()` 事务保证「建号 + 核销邀请码」原子性，用户名唯一约束
+兜底并发注册；刷题进度存 `quiz_stores`（`data` 为前端 v2 schema 的 JSON 序列化）。
 
 ## 测试
 
 ```bash
 npm test                # API 冒烟测试（tsx + MockStore，42 断言，无需起服务）
-npm run dev &           # 起 wrangler dev（本地 KV 模拟）
+npm run dev &           # 起 wrangler dev（本地 D1 模拟）
 node scripts/e2e-check.js   # 端到端（58 断言，Puppeteer + 本机 Chrome）
 ```
 
@@ -185,8 +184,8 @@ e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... node s
 ## 更新日志
 
 - v4（2026-10-11）：**架构重构**——后端迁移至 TypeScript（`src/`）、前端迁移至 TypeScript + Vite
-  （`webapp/` → `dist/`）；存储确定为 **Cloudflare Workers KV**（唯一后端，`Store` 接口抽象，
-  key 命名：`users` / `user:<u>:auth` / `invite:<code>` / `store:<u>`）；新增跨设备轮询同步、
+  （`webapp/` → `dist/`）；存储确定为 **Cloudflare D1**（唯一后端，`Store` 接口抽象，schema 首次请求
+  自动初始化，表：`users` / `invites` / `quiz_stores` / `meta`）；新增跨设备轮询同步、
   管理员全量备份导出、`HIDE_WEB_VAULT` 前端隐藏开关；api-test 42 断言、e2e 58 断言。
 - v3（2026-10-08）：存储迁移至 Cloudflare Workers KV + JWT 用户体系（首用户自动管理员、
   邀请码注册）、多设备云同步（乐观锁 + 合并）；架构思想对齐 nodewarden：可插拔存储层、

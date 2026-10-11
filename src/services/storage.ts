@@ -1,13 +1,13 @@
 /**
- * 存储工厂：KV 唯一后端。
+ * 存储工厂：D1 唯一后端。
  */
 
-import { KvStore } from "./storage-kv";
+import { D1Store } from "./storage-d1";
 import type { Env, Store } from "../types";
 
 export function createStore(env: Env): Store {
-  if (env.KV) return new KvStore(env.KV);
-  throw new Error("未配置 KV 存储绑定（KV）");
+  if (env.DB) return new D1Store(env.DB);
+  throw new Error("未配置 D1 存储绑定（DB）");
 }
 
-export { KvStore };
+export { D1Store };

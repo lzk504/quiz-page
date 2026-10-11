@@ -10,21 +10,22 @@ command = "npm run build"
 # 开启 HIDE_WEB_VAULT 时必须把 run_worker_first 改为 true（否则非 /api 请求不进 Worker）
 # html_handling 用默认值（/ 解析到 index.html）；not_found_handling=none 保证未知路径 404
 [assets]
-directory = "./dist"
 binding = "ASSETS"
+directory = "./dist"
 run_worker_first = ["/api/*"]
 not_found_handling = "none"
 
-# KV：用户表 / 凭证 / 邀请码 / 刷题数据（唯一存储后端）
-# 不写 id，绑定由 Cloudflare Dashboard 注入：
-#   Dashboard → Workers & Pages → quiz-page → 设置 → 绑定 → KV 命名空间，变量名填 KV
-[[kv_namespaces]]
-binding = "KV"
+# D1：用户信息 / 凭证 / 邀请码 / 刷题进度（schema 首次请求自动初始化，无需手动上传 SQL）
+# 部署前运行 npx wrangler d1 create quiz-page-db，把返回的 database_id 填入下方
+[[d1_databases]]
+binding = "DB"
+database_name = "quiz-page-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [vars]
 # "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）
 HIDE_WEB_VAULT = "0"
-# "1" 时启用 POST /__dev/reset（清库调试用；生产保持 "0"）
+# "1" 时启用 POST /api/dev/reset（清库调试用；生产保持 "0"）
 ALLOW_DEV_RESET = "0"
 
 # JWT_SECRET 用 secret 注入（不写入此文件）：

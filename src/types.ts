@@ -46,8 +46,8 @@ export interface JwtPayload {
 
 /** Worker 环境绑定 */
 export interface Env {
-  /** KV 存储绑定（唯一存储后端） */
-  KV?: KVNamespace;
+  /** D1 存储绑定（唯一存储后端） */
+  DB?: D1Database;
   /** 静态资产绑定 */
   ASSETS: Fetcher;
   /** 30+ 字符随机串，runtime secret 注入 */
@@ -87,8 +87,8 @@ export interface BackupData {
 }
 
 /**
- * 存储接口：业务代码只依赖本接口，不触碰 KV 原语。
- * 实现：KvStore（KV 模式）
+ * 存储接口：业务代码只依赖本接口，不触碰 D1 原语。
+ * 实现：D1Store（D1 模式）
  */
 export interface Store {
   // 用户
