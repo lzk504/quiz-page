@@ -90,22 +90,16 @@ Cloudflare 构建配置：
 - **构建命令**：`npm run build`
 - **部署命令**：`npm run deploy`
 
-首次部署前创建 D1 数据库：
+`wrangler.toml` 的 D1/KV 段**不写 id**，绑定由 Cloudflare Dashboard 注入——无需先
+`wrangler d1 create`，也不在配置里暴露任何 uuid。
 
-```bash
-npx wrangler d1 create quiz-page-db
-# 拿到返回的 database_id
-```
+部署后在 Dashboard 配置两个绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
 
-**`database_id` 不写入 `wrangler.toml`**（避免 uuid 进 GitHub 仓库），改由 `.dev.vars` 注入：
-
-```bash
-# .dev.vars（已 gitignore，不入库）
-D1_DATABASE_ID="<你的 D1 database id>"
-```
-
-`wrangler.toml` 里用环境变量引用 `database_id = "${D1_DATABASE_ID}"`，本地 `wrangler dev` /
-`wrangler deploy` 会自动读取 `.dev.vars` 并注入。
+1. **D1 绑定**：Dashboard → 存储和数据库 → D1 → 创建数据库，名称填 **`quiz-page`**；
+   再到 Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → D1 database →
+   变量名填 **`DB`** → 选 `quiz-page`
+2. **KV 绑定**：Dashboard → 存储和数据库 → KV → 创建命名空间（名称随意，如 `quiz-page`）；
+   再到 Workers → 设置 → 绑定 → 添加 → KV 命名空间 → 变量名填 **`RATE_LIMITS`**
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
