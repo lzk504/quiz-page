@@ -19,7 +19,7 @@ not_found_handling = "none"
 # 部署前运行 npx wrangler kv namespace create KV，把返回的 id 填入下方，
 # 或在 Cloudflare Dashboard 的 Bindings 里绑定 KV namespace（变量名 KV）
 [[kv_namespaces]]
-binding = "ATTACHMENTS_KV"
+binding = "KV"
 id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
