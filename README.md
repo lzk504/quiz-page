@@ -88,13 +88,15 @@ Cloudflare 构建配置：
 - **构建命令**：`npm run build`
 - **部署命令**：`npm run deploy`
 
-首次部署前创建 KV namespace 并填入 `wrangler.toml`：
+`wrangler.toml` 的 `[[kv_namespaces]]` **不写 id**，KV 绑定由 Dashboard 注入，避免
+`wrangler deploy` 因占位符 id 校验失败（`code: 10042`）。
 
-```bash
-npx wrangler kv namespace create KV
-# 把返回的 id 填入 wrangler.toml 的 [[kv_namespaces]] id
-# （或部署后在 Dashboard → Bindings 绑定 KV namespace，变量名 KV）
-```
+部署后在 Dashboard 配置 KV 绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
+
+1. 创建 KV namespace（若没有）：Dashboard → 存储和数据库 → KV → 创建命名空间
+   （或 `npx wrangler kv namespace create KV`）
+2. 绑定：Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → KV 命名空间 →
+   变量名填 **`KV`** → 选刚才的 namespace → 保存部署
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
