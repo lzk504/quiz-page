@@ -16,17 +16,19 @@ run_worker_first = ["/api/*"]
 not_found_handling = "none"
 
 # D1：用户 / 凭证 / 邀请码 / 刷题数据（schema 首次请求自动初始化，无需手动上传 SQL）
-# 部署前运行：npx wrangler d1 create quiz-page-db   然后把返回的 database_id 填到下方
+# 绑定不在此处写 database_id，改由 Cloudflare Dashboard 注入：
+#   Dashboard → Workers & Pages → quiz-page → Settings → Bindings → D1 database，变量名填 DB
+#   （本地开发：wrangler dev 会用 --local 的临时 D1，无需真实 id）
+# 若希望 wrangler deploy 自动创建/绑定，可自行加回 database_id = "<32 位 hex>"
 [[d1_databases]]
 binding = "DB"
 database_name = "quiz-page-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
-# 迁移期：旧 KV 命名空间作为「KV→D1 读穿迁移」的数据源
-# 全量迁移完成后可从配置中整段移除（见 README）
+# 迁移期：旧 KV 命名空间作为「KV→D1 读穿迁移」的数据源（可复用账号里已存在的 quiz-page-kv）
+# 绑定同样由 Dashboard 注入，变量名 KV——不写 id，避免 wrangler 自动创建同名 namespace 触发 code:10014
+#   Dashboard → quiz-page → Settings → Bindings → KV namespace，变量名填 KV，选已有 quiz-page-kv
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
 # "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）

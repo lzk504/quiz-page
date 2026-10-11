@@ -93,12 +93,15 @@ Cloudflare 构建配置：
 - **构建命令**：`npm run build`
 - **部署命令**：`npm run deploy`（D1 模式）或 `npm run deploy:kv`（KV 模式）
 
-首次部署前需创建 D1 数据库并填入配置：
+`wrangler.toml` 的 `[[d1_databases]]` / `[[kv_namespaces]]` **不写 id**，绑定由 Dashboard 注入，
+避免 `wrangler deploy` 自动创建同名资源触发 `code: 10014`（同名 KV namespace 已存在）或占位符校验失败。
 
-```bash
-npx wrangler d1 create quiz-page-db
-# 把返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] database_id
-```
+部署后在 Dashboard 配两个绑定（**跨 redeploy 持久**，仓库无需硬编码 id）：
+
+1. **D1 绑定**：Workers & Pages → `quiz-page` → 设置 → 绑定 → 添加 → D1 database →
+   变量名填 **`DB`**，数据库选 `quiz-page-db`（没有就先 `npx wrangler d1 create quiz-page-db` 创建）
+2. **KV 绑定**：同一设置页 → 添加 → KV 命名空间 → 变量名填 **`KV`**，选已有的 `quiz-page-kv`
+   （若走 KV 回退模式 `deploy:kv`，只配这个即可；D1 模式下 KV 仅作迁移源）
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
@@ -124,11 +127,11 @@ npx wrangler secret put JWT_SECRET
 
 若从旧的 KV 版本升级，D1 模式会自动迁移，无需手工导出导入：
 
-1. `wrangler.toml` 中同时保留 `DB`（D1）与 `KV`（旧命名空间）两个绑定
+1. `wrangler.toml` 中同时保留 `DB`（D1）与 `KV`（旧命名空间）两个绑定（均通过 Dashboard 绑定注入）
 2. 用户表与邀请码在首个请求时批量迁移（`meta.kv_migration_done` 标记防重）
 3. 刷题数据在用户首次访问时读穿迁移（`store:<user>` → D1 后删除源键）
 4. 迁移全部幂等（`INSERT OR IGNORE` / upsert），先写 D1 成功再删 KV，无丢失窗口
-5. 确认迁移完成后，可从 `wrangler.toml` 移除 `[[kv_namespaces]]` 段
+5. 确认迁移完成后，可从 `wrangler.toml` 移除 `[[kv_namespaces]]` 段，并在 Dashboard 解绑 KV
 
 ## API
 
