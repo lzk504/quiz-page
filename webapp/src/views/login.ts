@@ -53,7 +53,6 @@ const view: View = {
       <section class="card">
         <div class="about">
           <p><b>《3-6 岁儿童学习与发展指南》刷题手册</b></p>
-          <p>答题数据保存在云端（Cloudflare D1），登录后多设备同步。请妥善保管你的账号。</p>
         </div>
       </section>
     `;

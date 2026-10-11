@@ -45,7 +45,7 @@ const view: View = {
         <div class="about">
           <p>· 当前用户：<b>${esc(user?.username ?? "—")}</b>　·　角色：<b>${esc(ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? "—")}</b></p>
           <p>· 注册时间：${esc(fmtTime(user?.createdAt))}</p>
-          <p>· 数据存储：云端（Cloudflare D1），多设备登录自动同步</p>
+          <p>· 数据存储：云端（Cloudflare KV），多设备登录自动同步</p>
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="btn btn--sm btn--danger" id="btnLogout">退出登录</button>
@@ -117,7 +117,7 @@ const view: View = {
         <div class="about">
           <p><b>${esc(meta?.title ?? "《3-6岁儿童学习与发展指南》刷题手册")}</b></p>
           <p>题库共 ${questions.length} 题，题目与解析取自《3-6 岁儿童学习与发展指南 · 考点精编与刷题手册》。</p>
-          <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + D1；题库以 JSON 存放于 <code>data/questions.json</code>。</p>
+          <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + KV；题库以 JSON 存放于 <code>data/questions.json</code>。</p>
           <p>版本 v${esc(String(meta?.version ?? 1))}　·　题库生成于 ${esc(meta?.generatedAt ?? "—")}</p>
         </div>
       </section>

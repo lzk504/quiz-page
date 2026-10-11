@@ -1,5 +1,5 @@
 /**
- * 存储层：内存 cache + 云端（D1）同步。
+ * 存储层：内存 cache + 云端（KV）同步。
  *
  * 对外签名与旧 localStorage 版本保持一致（视图层零改动）：
  *   getStore() 同步返回 cache；recordAnswer/removeFromWrongbook 同步返回结果；

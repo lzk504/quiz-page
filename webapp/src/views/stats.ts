@@ -82,7 +82,7 @@ const view: View = {
         <div class="about">
           <p>· <b>正确率</b> = 最近一次答对的题数 ÷ 已作答题数。同一题重复作答只按最后一次计入。</p>
           <p>· <b>总进度</b> = 已作答题数 ÷ 题库总题数。</p>
-          <p>· 所有记录保存在云端（Cloudflare D1），可在设置页导出备份。</p>
+          <p>· 所有记录保存在云端（Cloudflare KV），可在设置页导出备份。</p>
         </div>
         <div class="actions" style="margin-top:14px">
           <button class="btn btn--block" id="sWrong">查看错题本（${s.wrongCount}）</button>
