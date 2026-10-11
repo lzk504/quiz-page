@@ -1,5 +1,5 @@
 /**
- * 存储工厂：KV 唯一后端（v4.2 起从 D1 切回 KV）。
+ * 存储工厂：KV 唯一后端。
  */
 
 import { KvStore } from "./storage-kv";
