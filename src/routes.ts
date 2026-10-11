@@ -11,6 +11,7 @@ import {
   generateInviteCode, USERNAME_RE, validatePassword,
 } from "./auth";
 import { createStore } from "./services/storage";
+import { createDailyRateLimiter } from "./services/rate-limit-daily";
 import { createRouter, json, fail, readJson, type Handler } from "./router";
 import { createRateLimiter, clientIp } from "./ratelimit";
 import type { Ctx, Env, Invite, NewUserRec, RegisterResult } from "./types";
@@ -21,6 +22,10 @@ const limiter = createRateLimiter();
 const LIMIT = 10;
 const rlRegisterKey = (c: Ctx) => `${clientIp(c.request)}:register`;
 const rlLoginKey = (c: Ctx) => `${clientIp(c.request)}:login`;
+
+/* ---------------- 每日限额（KV 持久，未登录 9 次/登录 64 次） ---------------- */
+
+const dailyLimiter = createDailyRateLimiter();
 
 /** 仅测试/开发用：清空限流计数 */
 export function _resetRateLimitForTest(): void {
@@ -167,6 +172,15 @@ export const devReset: Handler = async (c) => {
       c.env.DB.prepare("DELETE FROM meta"),
     ]);
   }
+  // 清空 KV 每日限额计数（本地/测试重跑用）
+  if (c.env.RATE_LIMITS) {
+    try {
+      const list = await c.env.RATE_LIMITS.list();
+      for (const k of list.keys || []) await c.env.RATE_LIMITS.delete(k.name);
+    } catch (e) {
+      console.error("[dev/reset] 清 KV 限额计数失败", e);
+    }
+  }
   _resetRateLimitForTest();
   return json({ ok: true });
 };
@@ -176,10 +190,10 @@ export const devReset: Handler = async (c) => {
 const router = createRouter();
 
 router.route("POST", "/api/register", register, {
-  before: [limiter.rateLimit(rlRegisterKey, LIMIT)],
+  before: [limiter.rateLimit(rlRegisterKey, LIMIT), dailyLimiter.dailyLimit],
 });
 router.route("POST", "/api/login", login, {
-  before: [limiter.rateLimit(rlLoginKey, LIMIT)],
+  before: [limiter.rateLimit(rlLoginKey, LIMIT), dailyLimiter.dailyLimit],
 });
 router.route("GET", "/api/bootstrap", bootstrap);
 router.route("GET", "/api/me", me, { auth: true });

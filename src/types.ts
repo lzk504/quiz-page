@@ -48,6 +48,8 @@ export interface JwtPayload {
 export interface Env {
   /** D1 存储绑定（唯一存储后端） */
   DB?: D1Database;
+  /** KV 绑定（每日访问限额计数，24h TTL；可选，未绑定时限频静默放行） */
+  RATE_LIMITS?: KVNamespace;
   /** 静态资产绑定 */
   ASSETS: Fetcher;
   /** 30+ 字符随机串，runtime secret 注入 */

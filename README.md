@@ -41,6 +41,7 @@ src/                         后端（TypeScript）
     storage.ts               Store 接口工厂（env.DB→D1Store）
     storage-schema.ts        D1 DDL + ensureSchema（首次请求幂等建表）
     storage-d1.ts            D1Store（registerUser 事务化）
+    rate-limit-daily.ts      KV 每日限额（未登录 9 次/登录 64 次，24h TTL）
 webapp/                      前端（TypeScript）
   index.html                 Vite 入口
   vite.config.ts             构建配置（outDir=../dist）
@@ -50,7 +51,7 @@ webapp/                      前端（TypeScript）
     migrate.ts / scoring.ts / stats.ts / ui.ts / utils.ts / types.ts
     views/{login,home,practice,wrongbook,stats,settings}.ts
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
-wrangler.toml                Worker 配置（D1 + assets）
+wrangler.toml                Worker 配置（D1 + KV 限额计数 + assets）
 scripts/
   api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
   e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
@@ -156,6 +157,19 @@ meta         (key PK, value)
 `schema` 首次请求由 `ensureSchema` 自动建表（`CREATE TABLE IF NOT EXISTS`，幂等）。
 `registerUser` 用 `db.batch()` 事务保证「建号 + 核销邀请码」原子性，用户名唯一约束
 兜底并发注册；刷题进度存 `quiz_stores`（`data` 为前端 v2 schema 的 JSON 序列化）。
+
+### 限频
+
+两层限频叠加，保护 register / login 免遭爆破与滥用：
+
+| 层 | 实现 | 规则 |
+|---|---|---|
+| 分钟级（防爆破） | `ratelimit.ts` 内存固定窗口 | register / login 各 **10 次/分钟/IP** |
+| 每日级（控用量） | `rate-limit-daily.ts` + KV 计数 | 未登录 IP **9 次/天**；登录用户 **64 次/天**（北京时间按天，24h TTL 自动回收） |
+
+- 每日计数存 KV（绑定 `RATE_LIMITS`，key 形如 `UNAUTH:<ip>:<日期>` / `AUTH:<userId>:<日期>`）
+- KV 未绑定时每日限频**静默放行**（限频是增强能力，不因缺绑定阻塞业务）
+- 触发时返回 `429` + 中文提示
 
 ## 测试
 

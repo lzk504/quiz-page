@@ -23,6 +23,12 @@ binding = "DB"
 database_name = "quiz-page-db"
 database_id = "${D1_DATABASE_ID}"
 
+# KV：每日访问限额计数（24h TTL 自动回收；register/login 每日限额用）
+# id 同样走环境变量注入：.dev.vars 里写 RATE_LIMITS_KV_ID = "<你的 KV namespace id>"
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "${RATE_LIMITS_KV_ID}"
+
 [vars]
 # "1" 时隐藏 Web 前端（非 /api 路径返回 404，需配合 run_worker_first = true）
 HIDE_WEB_VAULT = "0"
