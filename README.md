@@ -89,13 +89,22 @@ Cloudflare 构建配置：
 - **构建命令**：`npm run build`
 - **部署命令**：`npm run deploy`
 
-首次部署前创建 D1 数据库并填入 `wrangler.toml`：
+首次部署前创建 D1 数据库：
 
 ```bash
 npx wrangler d1 create quiz-page-db
-# 把返回的 database_id 填入 wrangler.toml 的 [[d1_databases]] database_id
-# （或部署后在 Dashboard → Bindings 绑定 D1 database，变量名 DB）
+# 拿到返回的 database_id
 ```
+
+**`database_id` 不写入 `wrangler.toml`**（避免 uuid 进 GitHub 仓库），改由 `.dev.vars` 注入：
+
+```bash
+# .dev.vars（已 gitignore，不入库）
+D1_DATABASE_ID="<你的 D1 database id>"
+```
+
+`wrangler.toml` 里用环境变量引用 `database_id = "${D1_DATABASE_ID}"`，本地 `wrangler dev` /
+`wrangler deploy` 会自动读取 `.dev.vars` 并注入。
 
 设置运行时密钥（正式环境必须 30+ 字符随机串，禁止示例值）：
 
