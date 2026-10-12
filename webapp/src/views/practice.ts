@@ -44,7 +44,18 @@ function buildPool(params: Record<string, string>): Question[] {
   const all = getQuestions();
   if (params.mode === "wrong") {
     const wrongIds = new Set(Object.keys(getStore().wrongbook));
-    return all.filter((q) => wrongIds.has(q.id));
+    let pool = all.filter((q) => wrongIds.has(q.id));
+    if (params.qid) {
+      return pool.filter((q) => q.id === params.qid);
+    }
+    if (params.bank) {
+      pool = pool.filter((q) => q.id.startsWith(params.bank + "-"));
+    }
+    if (params.domain) {
+      const domains = params.domain.split(",").filter(Boolean);
+      if (domains.length) pool = pool.filter((q) => domains.includes(q.domain));
+    }
+    return pool;
   }
   const domains = params.domain ? String(params.domain).split(",").filter(Boolean) : [];
   const types = params.type ? String(params.type).split(",").filter(Boolean) : [];
@@ -60,7 +71,21 @@ function createSession(params: Record<string, string>): Session {
   let title: string;
 
   if (params.mode === "wrong") {
-    title = "错题重刷";
+    if (params.qid && pool[0]) {
+      title = `错题单练 · ${questionDomainLabel(pool[0])}`;
+    } else if (params.bank && params.domain) {
+      const sample = pool.find((q) => q.domain === params.domain);
+      const dName = sample ? questionDomainLabel(sample) : params.domain;
+      title = `错题重刷 · ${dName}`;
+    } else if (params.bank) {
+      title = `错题重刷 · 题库专属`;
+    } else if (params.domain) {
+      const sample = pool.find((q) => q.domain === params.domain);
+      const dName = sample ? questionDomainLabel(sample) : params.domain;
+      title = `错题重刷 · ${dName}`;
+    } else {
+      title = "错题重刷 · 全量";
+    }
   } else {
     const domains = params.domain ? String(params.domain).split(",").filter(Boolean) : [];
     const types = params.type ? String(params.type).split(",").filter(Boolean) : [];
