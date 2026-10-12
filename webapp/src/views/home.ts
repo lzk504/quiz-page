@@ -1,7 +1,7 @@
 /** 首页：题库多选 + 进度总览 + 领域×题型筛选 + 入口 */
 
 import {
-  getQuestions, getMeta, getBanks, getBank, getSelectedBanks, setSelectedBanks, countBy, countByBank,
+  getQuestions, getLoadedQuestions, getMeta, getBanks, getSelectedBanks, setSelectedBanks, countBy,
   bankQuestionCount, isBankLoaded, isBankFailed, ensureBank, selectedDomains, domainLabels, typeLabels,
 } from "../state";
 import { getStore } from "../storage";
@@ -9,7 +9,7 @@ import { computeStats } from "../stats";
 import { esc } from "../utils";
 import { navigate } from "../router";
 import { emptyState } from "../ui";
-import type { BankMeta, View, Question } from "../types";
+import type { BankMeta, View } from "../types";
 
 /** 会话内保留筛选状态 */
 const filter = { domains: new Set<string>(), types: new Set<string>() };
@@ -33,54 +33,52 @@ function chip(label: string, count: number, on: boolean, dataAttr: string): stri
   </button>`;
 }
 
-/** 简短书名提取 */
+/** 简短书名提取：《…》取书名号内文本；没有书名号则用完整标题（不做硬截断） */
 function shortBankTitle(title: string): string {
   const match = title.match(/《(.+?)》/);
-  if (match) return match[1];
-  return title.length > 8 ? title.slice(0, 8) : title;
+  return match ? match[1] : title;
 }
 
-/** 题库分段切换 Pill */
-function bankSegment(bank: BankMeta, on: boolean): string {
+/** 单个题库的进度统计（基于全部已加载库，与是否选中无关） */
+type BankStat = { total: number; answered: number; correct: number };
+
+/** 题库选择行：勾选态 + 书名 + 行内进度 */
+function bankSegment(bank: BankMeta, on: boolean, stat: BankStat | undefined, isLastSelected: boolean): string {
   const loaded = isBankLoaded(bank.id);
   const failed = isBankFailed(bank.id);
   const shortTitle = shortBankTitle(bank.title);
+  const targetTotal = Object.values(bank.typeCounts ?? {}).reduce((a, b) => a + b, 0);
 
-  let statusBadge = "";
-  if (failed) statusBadge = `<span class="seg__loading" style="color:var(--bad)">⚠</span>`;
-  else if (!loaded) statusBadge = `<span class="seg__loading">⋯</span>`;
-  else if (on) statusBadge = `<span class="seg__check">✓</span>`;
+  let mark = `<span class="seg__mark seg__mark--idle"></span>`;
+  let nums = "";
+  let pct = 0;
 
-  return `<button type="button" class="seg${on ? " is-on" : ""}" data-bank="${esc(bank.id)}" title="${esc(bank.title)}">
-    ${statusBadge}<span>${esc(shortTitle)}</span>
+  if (failed) {
+    mark = `<span class="seg__mark seg__mark--fail">⚠</span>`;
+    nums = `<span class="seg__nums seg__nums--fail">加载失败 · 点击重试</span>`;
+  } else if (!loaded) {
+    mark = `<span class="seg__mark seg__mark--load">⋯</span>`;
+    nums = `<span class="seg__nums">目标 ${targetTotal} 题</span>`;
+  } else if (stat) {
+    if (on) mark = `<span class="seg__mark seg__mark--on">✓</span>`;
+    pct = stat.total ? Math.round((stat.answered / stat.total) * 100) : 0;
+    const rate = stat.answered ? `<b>${Math.round((stat.correct / stat.answered) * 100)}%</b>` : "";
+    nums = `<span class="seg__nums">${stat.answered}/${stat.total}${rate}</span>`;
+  }
+
+  const tip = isLastSelected ? "至少保留一个题库" : bank.title;
+
+  return `<button type="button" class="seg seg--hero${on ? " is-on" : ""}" data-bank="${esc(bank.id)}"
+      aria-pressed="${on}" title="${esc(tip)}">
+    ${mark}
+    <span class="seg__body">
+      <span class="seg__row">
+        <span class="seg__name">${esc(shortTitle)}</span>
+        ${nums}
+      </span>
+      <span class="seg__bar"><i style="width:${pct}%"></i></span>
+    </span>
   </button>`;
-}
-
-/** 各题库独立进度条渲染 */
-function bankProgressList(questions: Question[], store: ReturnType<typeof getStore>): string {
-  const selected = getSelectedBanks();
-  const records = store?.records ?? {};
-
-  // 为每个选中的题库生成进度条
-  return selected.map((bankId) => {
-    const bank = getBank(bankId);
-    if (!bank) return "";
-    const bQs = questions.filter((q) => q.id.startsWith(bankId + "-"));
-    const total = bQs.length;
-    const answered = bQs.filter((q) => records[q.id]).length;
-    const correct = bQs.filter((q) => records[q.id]?.lastCorrect).length;
-    const pct = total ? Math.round((answered / total) * 100) : 0;
-    const rate = answered ? Math.round((correct / answered) * 100) : 0;
-    const shortTitle = shortBankTitle(bank.title);
-
-    return `<div class="bank-progress">
-      <div class="bank-progress__head">
-        <span class="bank-progress__name">${esc(shortTitle)}</span>
-        <span class="bank-progress__nums">${answered}/${total}${answered ? `<b>${rate}%</b>` : ""}</span>
-      </div>
-      <div class="bank-progress__bar"><i style="width:${pct}%"></i></div>
-    </div>`;
-  }).join("");
 }
 
 /** 题库卡片（折叠详情中使用） */
@@ -126,58 +124,75 @@ const view: View = {
 
     const dCounts = countBy("domain");
     const tCounts = countBy("type");
-    const bCounts = countByBank();
     const dl = domainLabels();
     const tl = typeLabels();
+
+    // 各库进度：基于「全部已加载库」计算，未选中的库也能显示自己的进度
+    // （不能用 questions —— 它只含选中库，会把已加载未选中的库算成 0/0）
+    const records = store?.records ?? {};
+    const allLoaded = getLoadedQuestions();
+    const bankStat = new Map<string, BankStat>();
+    for (const b of banks) {
+      const bQs = allLoaded.filter((q) => q.id.startsWith(b.id + "-"));
+      bankStat.set(b.id, {
+        total: bQs.length,
+        answered: bQs.filter((q) => records[q.id]).length,
+        correct: bQs.filter((q) => records[q.id]?.lastCorrect).length,
+      });
+    }
 
     const matched = matchQuestions();
     const hasFilter = filter.domains.size > 0 || filter.types.size > 0;
 
     root.innerHTML = `
       <section class="hero">
-        <div class="hero__eyebrow">${esc(meta?.source ?? "学前教育政策与法规 · 考点精编")}</div>
-        <h1 class="hero__title">考点精编 · 刷题手册</h1>
-
-        <div class="hero__stats">
-          <div class="hero__stat"><b>${s.progress.answered}/${s.progress.total}</b><span>已刷题数</span></div>
-          <div class="hero__stat"><b>${s.answered ? s.rate + "%" : "—"}</b><span>正确率</span></div>
-          <div class="hero__stat"><b>${s.wrongCount}</b><span>错题在册</span></div>
-        </div>
-
-        <!-- 选中题库独立进度条展示 -->
-        <div class="bank-progress-list">
-          ${bankProgressList(questions, store)}
-        </div>
-
-        <p class="hero__hint">当前题池 ${questions.length} 题　·　总进度 ${s.progress.percent}%</p>
-
-        <button class="btn btn--block" id="quickStart">
-          ${s.progress.answered ? "继续刷题" : "开始刷题"}
-        </button>
-      </section>
-
-      <!-- 紧凑题库分段切换（保留多选） -->
-      <section class="card bank-switch-card">
-        <div class="bank-switch-head">
-          <span class="bank-switch-title">
-            题库选择
-            <small>已选 ${selected.size}/${banks.length} 库（可多选）</small>
-          </span>
-          <div class="bank-switch-actions">
-            <button class="btn btn--sm btn--ghost" id="toggleSelectAll" style="padding:0 8px;font-size:12px">
+        <header class="hero__head">
+          <div class="hero__head-main">
+            <div class="hero__eyebrow">${esc(meta?.source ?? "学前教育政策与法规 · 考点精编")}</div>
+            <h1 class="hero__title">刷题手册</h1>
+          </div>
+          <div class="hero__head-side">
+            <span class="hero__head-count">已选 ${selected.size}/${banks.length} 库</span>
+            <button type="button" class="hero-head-btn" id="toggleSelectAll"
+              title="已选 ${selected.size}/${banks.length} 库，可多选">
               ${selected.size === banks.length ? "单选指南" : "全选题库"}
             </button>
           </div>
-        </div>
-        <div class="seg-group">
-          ${banks.map((b) => bankSegment(b, selected.has(b.id))).join("")}
-        </div>
-        <div class="bank-details-toggle" id="toggleBankDetails">
-          ${showBankDetails ? "收起题库详细说明 ▲" : "查看各题库题量与指标详情 ▼"}
-        </div>
-        <div id="bankDetailsContainer" style="display:${showBankDetails ? "block" : "none"};margin-top:10px">
-          <div class="bank-grid">
-            ${banks.map((b) => bankCard(b, selected.has(b.id))).join("")}
+        </header>
+
+        <div class="hero__grid">
+          <!-- 统计 / 入口（移动端在前；桌面端由 grid-area 排到右列） -->
+          <div class="hero__col hero__col--stats">
+            <div class="hero__stats">
+              <div class="hero__stat"><b>${s.progress.answered}/${s.progress.total}</b><span>已刷题数</span></div>
+              <div class="hero__stat"><b>${s.answered ? s.rate + "%" : "—"}</b><span>正确率</span></div>
+              <div class="hero__stat"><b>${s.wrongCount}</b><span>错题在册</span></div>
+            </div>
+
+            <p class="hero__hint">当前题池 ${questions.length} 题　·　总进度 ${s.progress.percent}%</p>
+
+            <button class="btn btn--block" id="quickStart">
+              ${s.progress.answered ? "继续刷题" : "开始刷题"}
+            </button>
+          </div>
+
+          <!-- 题库选择（移动端在后；桌面端由 grid-area 排到左列） -->
+          <div class="hero__col hero__col--banks">
+            <div class="hero__panel">
+              <div class="seg-group">
+                ${banks.map((b) =>
+                  bankSegment(b, selected.has(b.id), bankStat.get(b.id), selected.size === 1 && selected.has(b.id))
+                ).join("")}
+              </div>
+              <button type="button" class="bank-details-toggle" id="toggleBankDetails">
+                ${showBankDetails ? "收起题库详细说明 ▲" : "查看各题库题量与指标详情 ▼"}
+              </button>
+              <div id="bankDetailsContainer" style="display:${showBankDetails ? "block" : "none"}">
+                <div class="bank-grid">
+                  ${banks.map((b) => bankCard(b, selected.has(b.id))).join("")}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -218,19 +233,6 @@ const view: View = {
           <button class="btn btn--sm ${s.wrongCount ? "btn--primary" : ""}" id="goWrongbook" ${s.wrongCount ? "" : "disabled"}>查看</button>
         </div>
       </section>
-
-      <section class="card">
-        <h2 class="card__title">题库概览</h2>
-        <div class="about">
-          ${banks.map((b) => {
-            const n = bCounts[b.id] ?? 0;
-            const target = Object.values(b.typeCounts ?? {}).reduce((a, c) => a + c, 0);
-            return `<p>· <b>${esc(b.title)}</b>：${n ? `${n} 题` : `待生成（目标 ${target} 题）`}　·　领域 ${b.domains.map((d) => esc(b.domainLabels[d] ?? d)).join(" / ")}</p>`;
-          }).join("")}
-          <p>· 当前题池 <b>${questions.length}</b> 题：${Object.entries(tl).map(([k, l]) => `${esc(l)} ${tCounts[k] ?? 0}`).join("　")}。</p>
-          <p>· 数据来源：${esc(meta?.source ?? "学前教育政策与法规")}。</p>
-        </div>
-      </section>
     `;
 
     /* ---------- 事件 ---------- */
@@ -242,9 +244,10 @@ const view: View = {
       if (!isBankLoaded(id) && !cur.has(id)) {
         if (btnElement) {
           btnElement.disabled = true;
-          const metaEl = btnElement.querySelector(".bank-card__meta");
-          if (metaEl) metaEl.textContent = "加载中…";
-          else btnElement.textContent = "…";
+          btnElement.classList.add("is-loading");
+          // 定点替换文本：整行 textContent 会抹掉勾选槽/进度条 DOM
+          const numsEl = btnElement.querySelector(".seg__nums, .bank-card__meta");
+          if (numsEl) numsEl.textContent = "加载中…";
         }
         const bs = await ensureBank(id);
         if (!bs) { rerender(); return; }
@@ -264,7 +267,7 @@ const view: View = {
       rerender();
     };
 
-    // 快捷分段按钮点击
+    // 题库行点击
     root.querySelectorAll<HTMLButtonElement>(".seg").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.bank;

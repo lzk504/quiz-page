@@ -49,12 +49,6 @@ const view: View = {
           <p class="auth__note" id="authNote"></p>
         </form>
       </div>
-
-      <section class="card">
-        <div class="about">
-          <p><b>《3-6 岁儿童学习与发展指南》刷题手册</b></p>
-        </div>
-      </section>
     `;
 
     let tab: "login" | "register" = "login";
