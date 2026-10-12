@@ -1,13 +1,15 @@
 /** 前端共享类型 */
 
-export type QuestionType = "single" | "multiple" | "judge";
+export type QuestionType = "single" | "multiple" | "judge" | "fill" | "short";
 
 export interface Question {
   id: string;
   type: QuestionType;
   domain: string;
   stem: string;
+  /** 选择题为选项数组；fill / short / judge 为 null */
   options: string[] | null;
+  /** single=字母 · multiple=字母数组 · judge=布尔 · fill=逐空参考答案 · short=参考答案全文 */
   answer: string | string[] | boolean;
   analysis: string;
 }
@@ -19,6 +21,22 @@ export interface Meta {
   generatedAt?: string;
   counts?: Record<string, number>;
   domainLabels?: Record<string, string>;
+}
+
+/** 题库清单条目（banks.json 的 banks[] 元素） */
+export interface BankMeta {
+  /** 库前缀：G / P / Y，同时是题目 id 的前缀 */
+  id: string;
+  title: string;
+  /** 相对站点根的题库文件路径，如 data/bank-g.json */
+  file: string;
+  source?: string;
+  domains: string[];
+  domainLabels: Record<string, string>;
+  /** 目标题量（按题型） */
+  typeCounts: Record<string, number>;
+  /** 已加载库文件 meta 里的实际计数 */
+  counts?: Record<string, number>;
 }
 
 /** 单题作答记录 */
@@ -39,7 +57,7 @@ export interface WrongbookEntry {
   lastWrongAt: number;
 }
 
-/** 刷题数据（与后端 v2 schema 同形） */
+/** 刷题数据（与后端 store schema 同形：v3） */
 export interface QuizStore {
   version: number;
   records: Record<string, RecordEntry>;

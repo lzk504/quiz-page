@@ -1,8 +1,9 @@
 /** 设置页：账号 / 数据管理（导入导出清空） / 管理员（邀请码 / 全量备份） / 关于 */
 
-import { getMeta, getQuestions, on } from "../state";
+import { getMeta, getQuestions, getBanks, on } from "../state";
 import {
   exportJson, validateImport, applyImport, clearAll, getStore, isPersistent, getSyncStatus,
+  flushStore, SCHEMA_VERSION,
 } from "../storage";
 import { getCurrentUser, logout, apiFetch } from "../auth";
 import { stopSync } from "../sync";
@@ -32,6 +33,7 @@ const view: View = {
 
     const meta = getMeta();
     const questions = getQuestions();
+    const banks = getBanks();
     const store = getStore();
     const s = computeStats(questions, store);
     const user = getCurrentUser();
@@ -45,7 +47,7 @@ const view: View = {
         <div class="about">
           <p>· 当前用户：<b>${esc(user?.username ?? "—")}</b>　·　角色：<b>${esc(ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? "—")}</b></p>
           <p>· 注册时间：${esc(fmtTime(user?.createdAt))}</p>
-          <p>· 数据存储：云端（Cloudflare KV），多设备登录自动同步</p>
+          <p>· 数据存储：云端（Cloudflare D1），多设备登录自动同步</p>
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="btn btn--sm btn--danger" id="btnLogout">退出登录</button>
@@ -66,7 +68,7 @@ const view: View = {
         <div class="setting-row">
           <div class="setting-row__text">
             <b>导入备份</b>
-            <span>从之前导出的 JSON 文件恢复（兼容 v1 旧备份，会自动迁移）。导入前会自动校验格式，失败不会改动现有数据。</span>
+            <span>从之前导出的 JSON 文件恢复（兼容 v1/v2 旧备份，会自动迁移）。导入前会自动校验格式，失败不会改动现有数据。</span>
           </div>
           <button class="btn btn--sm" id="btnImport">导入</button>
           <input type="file" id="fileInput" accept="application/json,.json" hidden>
@@ -115,10 +117,10 @@ const view: View = {
       <section class="card">
         <h2 class="card__title">关于</h2>
         <div class="about">
-          <p><b>${esc(meta?.title ?? "《3-6岁儿童学习与发展指南》刷题手册")}</b></p>
-          <p>题库共 ${questions.length} 题，题目与解析取自《3-6 岁儿童学习与发展指南 · 考点精编与刷题手册》。</p>
-          <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + KV；题库以 JSON 存放于 <code>data/questions.json</code>。</p>
-          <p>版本 v${esc(String(meta?.version ?? 1))}　·　题库生成于 ${esc(meta?.generatedAt ?? "—")}</p>
+          <p><b>${esc(meta?.title ?? "学前教育刷题手册")}</b></p>
+          <p>共 ${banks.length} 个题库（已加载 ${questions.length} 题）：${banks.map((b) => esc(b.title)).join("　")}</p>
+          <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + D1；题库以 JSON 存放于 <code>data/banks.json</code> 与 <code>data/bank-*.json</code>。</p>
+          <p>数据版本 v${SCHEMA_VERSION}　·　共 ${banks.length} 库 / 每库 1000 题</p>
         </div>
       </section>
     `;
@@ -126,6 +128,9 @@ const view: View = {
     /* ---------- 账号 ---------- */
     root.querySelector("#btnLogout")?.addEventListener("click", () => {
       if (!window.confirm("确定退出登录吗？退出后需重新登录才能查看答题数据。")) return;
+      // 先冲刷待发数据：作答后的上云是 800ms 防抖的，直接 logout 会清掉 token
+      // 导致 doPut() 提前返回，最近一次作答/导入就永远丢了。
+      flushStore();
       stopSync();
       logout();
       toast("已退出登录", "info");

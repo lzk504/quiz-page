@@ -2,7 +2,7 @@
 
 import "./style.css";
 
-import { loadQuestions, on, getMeta, getQuestions } from "./state";
+import { loadBanks, on, getMeta, getQuestions, getBanks } from "./state";
 import { initStorage, getStore, isPersistent, setValidIds, flushStore,
   exportJson, validateImport, applyImport, clearAll } from "./storage";
 import { initAuth, isLoggedIn, fetchMe, clearToken } from "./auth";
@@ -13,19 +13,20 @@ import { esc } from "./utils";
 import type { SyncStatus } from "./types";
 
 import home from "./views/home";
-import practice from "./views/practice";
+import practice, { debugSession } from "./views/practice";
 import wrongbook from "./views/wrongbook";
 import stats from "./views/stats";
 import settings from "./views/settings";
 import login from "./views/login";
 
 /**
- * 自动化/调试钩子：暴露当前用户的存储 API。
+ * 自动化/调试钩子：暴露当前用户的存储 API 与刷题会话快照。
  * 仅能读写「当前登录用户自己」的数据（服务端按 token 隔离），无越权风险。
  * 供 e2e 测试与浏览器控制台排查使用。
  */
 (window as unknown as { __quiz: unknown }).__quiz = {
   storage: { getStore, exportJson, validateImport, applyImport, clearAll },
+  practice: { session: debugSession },
 };
 
 const TAB_OF_ROUTE: Record<string, string> = {
@@ -98,7 +99,7 @@ function renderLoadError(app: HTMLElement, err: Error): void {
       <p>${esc(err?.message ?? "未知错误")}</p>
       ${isFile
         ? `<p>检测到你是用 <code>file://</code> 直接打开的页面。请改用 <code>npm run dev</code> 或访问部署后的站点。</p>`
-        : `<p>请确认 <code>data/questions.json</code> 已随构建产物发布；如果是刚部署，稍等片刻让 CDN 缓存生效。</p>`}
+        : `<p>请确认 <code>data/banks.json</code> 与各题库文件已随构建产物发布；如果是刚部署，稍等片刻让 CDN 缓存生效。</p>`}
       <div class="actions" style="justify-content:center;margin-top:18px">
         <button class="btn btn--primary" id="retry">重新加载</button>
       </div>
@@ -120,15 +121,15 @@ async function boot(): Promise<void> {
   register("login", login);
 
   try {
-    await loadQuestions();
+    await loadBanks();
   } catch (err) {
     console.error("[boot] 题库加载失败", err);
     renderLoadError(app, err as Error);
     return;
   }
 
-  // 先注入题库 id 集，再初始化存储：v1→v2 迁移需要它剔除已删除题的记录
-  setValidIds(getQuestions().map((q) => q.id));
+  // 先注入题库 id 集与题库前缀，再初始化存储：迁移/清理需要它剔除失效记录
+  setValidIds(getQuestions().map((q) => q.id), getBanks().map((b) => b.id));
 
   // 鉴权：读 token → 校验 → 已登录则拉云端 store
   initAuth();
@@ -148,7 +149,13 @@ async function boot(): Promise<void> {
   }
 
   // 数据变化时同步顶栏与角标
-  on("store-changed", () => syncChrome({ view: location.hash.replace(/^#\/?/, "").split("?")[0] || "home", params: {} }));
+  const refreshChrome = (): void => {
+    const view = location.hash.replace(/^#\/?/, "").split("?")[0] || "home";
+    syncChrome({ view, params: {} });
+  };
+  on("store-changed", refreshChrome);
+  on("data-loaded", refreshChrome);
+  on("banks-changed", refreshChrome);
   on("storage-broken", () => {
     if (isPersistent()) return;
     showBanner("本地存储不可用（可能是隐私模式或浏览器限制），登录态无法保持，每次打开需重新登录。");

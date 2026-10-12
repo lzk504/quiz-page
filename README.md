@@ -16,9 +16,12 @@
 
 ## 功能
 
-- **68 题完整题库**：单选 44 / 多选 10 / 判断 14，全部对照指南原文编写与校订
-- **三种题型即时判分**、选项选中态、判定后展示解析
-- **双维度筛选**：领域 × 题型任意组合；**正确率/进度统计**（整体、分领域、分题型）
+- **三库 3000 题**：《3-6岁儿童学习与发展指南》/《幼儿园保育教育质量评估》/《幼儿园教育指导纲要》各 1000 题
+  （每库单选 400 / 多选 200 / 判断 200 / 填空 100 / 简答 100），全部对照原文编写与校订
+- **五种题型**：客观题即时判分并展示解析；**填空/简答题由用户对照参考答案自行判定**（不做文本自动判分）
+- **题库多选/合并刷题**：可单库也可多库合并出题，每次随机抽题**上限 100 题**；结束页支持
+  「再刷一遍」（同一批重新打乱）与「换一批」（重新抽题）
+- **双维度筛选**：领域 × 题型任意组合；**正确率/进度统计**（整体、分题库、分领域、分题型）
 - **错题本**：答错自动收录，重刷答对自动移出，支持手动移除
 - **用户体系**：注册需邀请码（一次性），**首个注册用户自动成为管理员**
 - **云端同步**：数据按用户隔离存于 D1，多设备登录自动同步（乐观锁 + lastAt 新者胜合并）
@@ -45,16 +48,20 @@ src/                         后端（TypeScript）
 webapp/                      前端（TypeScript）
   index.html                 Vite 入口
   vite.config.ts             构建配置（outDir=../dist）
-  public/data/questions.json 题库（构建时原样进 dist）
+  public/data/banks.json     题库清单（唯一数据入口）
+  public/data/bank-*.json    各题库文件（G/P/Y，按需加载，构建时原样进 dist）
   src/
-    main.ts / router.ts / state.ts / auth.ts / storage.ts / sync.ts
-    migrate.ts / scoring.ts / stats.ts / ui.ts / utils.ts / types.ts
+    main.ts / router.ts                 入口与 hash 路由（登录守卫）
+    state.ts                            题库清单 + 按需加载 + 选中库偏好
+    auth.ts / storage.ts / sync.ts       鉴权 / 云端 store 同步（乐观锁+防抖）/ 30s 轮询
+    migrate.ts / scoring.ts / stats.ts   数据迁移 v1→v2→v3 / 判分 / 统计口径
+    ui.ts / utils.ts / types.ts
     views/{login,home,practice,wrongbook,stats,settings}.ts
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
 wrangler.toml                Worker 配置（D1 + KV 限额计数 + assets）
 scripts/
-  api-test.ts                API 冒烟测试（tsx 运行，42 断言，MockStore）
-  e2e-check.js               端到端测试（Puppeteer，58 断言，需 wrangler dev）
+  api-test.ts                API 冒烟测试（tsx 运行，43 断言，MockStore）
+  e2e-check.js               端到端测试（Puppeteer，127 断言，需 wrangler dev）
   *.py                       题库生成/校验脚本（本地工具链，已 gitignore，不入库）
 ```
 
@@ -168,38 +175,61 @@ meta         (key PK, value)
 ## 测试
 
 ```bash
-npm test                # API 冒烟测试（tsx + MockStore，42 断言，无需起服务）
+npm test                # API 冒烟测试（tsx + MockStore，43 断言，无需起服务）
 npm run dev &           # 起 wrangler dev（本地 D1 模拟）
-node scripts/e2e-check.js   # 端到端（58 断言，Puppeteer + 本机 Chrome）
+node scripts/e2e-check.js   # 端到端（127 断言，Puppeteer + 本机 Chrome）
+
+# 题库结构与配比校验（本地工具链，已 gitignore）
+C:/Users/lzk_7/miniconda3/python.exe scripts/validate_questions.py --quiet
 ```
 
-e2e 覆盖：未登录重定向、首用户注册（自动 admin）、题库结构、三种题型判分、错题本、
-统计、设置页账号/邀请码、刷新持久化（云端拉回）、360px/桌面端布局、深链接筛选、
-v1→v2 首次上云迁移、登出登录 round-trip、数据隔离、邀请码一次性、重复用户名 409、
-无 token 401、token 篡改跳登录。
+e2e 覆盖：未登录重定向、首用户注册（自动 admin）、三库清单与 id 规范、五种题型作答
+（含填空/简答的**用户自判**两条判定路径）、题库多选/切换/偏好持久化与 `P-` 前缀抽题、
+抽题上限 100 与「再刷一遍/换一批」、错题本、统计、设置页账号/邀请码、导出结构 v3、
+刷新持久化（云端拉回）、360px/桌面端布局、深链接筛选、v1→v3 与 v2→v3 迁移、
+登出登录 round-trip、数据隔离、邀请码一次性、重复用户名 409、无 token 401、token 篡改跳登录。
 
 e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... node scripts/e2e-check.js`
 指向任意部署做验证。
 
 ## 维护题库
 
-题库文件是 `webapp/public/data/questions.json`，顶层为 `meta` + `questions` 数组。
+题库拆成多个文件，由 `webapp/public/data/banks.json`（清单）统一索引：前端启动时先读清单、
+恢复用户上次选中的库，再按需加载（未勾选的库不下载）。每库再加一个文件即多一个可选题库。
+
+```
+data/banks.json    清单：id / title / file / source / domains / domainLabels / typeCounts
+data/bank-g.json   《3-6岁儿童学习与发展指南》
+data/bank-p.json   《幼儿园保育教育质量评估》
+data/bank-y.json   《幼儿园教育指导纲要》
+```
+
+每个库文件顶层为 `meta` + `questions` 数组。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | string | 全局唯一。`S`单选 / `M`多选 / `J`判断 + 两位序号（v2 起允许缺口） |
-| `type` | string | `single` / `multiple` / `judge` |
-| `domain` | string | `health` / `language` / `society` / `science` / `art` / `general` |
-| `stem` | string | 题干，保留 `（　　）` 占位 |
-| `options` | string[] | 选项文本（判断题为 `null`） |
-| `answer` | 见下 | 单选 `"B"` / 多选 `["A","B"]`（全对才算对）/ 判断 `false` |
-| `analysis` | string | 解析，引用指南原文 |
+| `id` | string | 全局唯一。`<库前缀>-<题型字母><三位序号>`。库前缀 `G`/`P`/`Y`；题型字母 `S`单选 / `M`多选 / `J`判断 / `F`填空 / `A`简答，如 `G-S001` / `P-M012` / `Y-A010` |
+| `type` | string | `single` / `multiple` / `judge` / `fill` / `short` |
+| `domain` | string | **各库领域自治**：G → `health`/`language`/`society`/`science`/`art`/`general`；P → `A1`-`A5`；Y → `zongze`/`neirong`/`zuzhi`/`pingjia`。标签写在清单的 `domainLabels` |
+| `stem` | string | 题干。选择题保留 `（　　）` 占位；**填空题用 `____`（4 个下划线）标记每个空**，空数必须与 `answer` 项数一致 |
+| `options` | string[] \| null | 选项文本（判断/填空/简答为 `null`） |
+| `answer` | 见下 | 单选 `"B"` / 多选 `["A","B"]`（全对才算对）/ 判断 `false` / **填空 `["第一空","第二空"]`（参考答案）/ 简答 `"参考答案文本"`** |
+| `analysis` | string | 解析，引用原文 |
 
-直接编辑 JSON 追加题目即可，同时更新 `meta.counts`。**不要复用已删除的 id**
-（S02/S05/S06、J04、F01-F16、SA01-SA08），避免与老用户历史记录错位。
+- **加题**：在对应库文件里追加，`id` 序号接在**该库该题型当前最大号之后**；同时更新该库的 `meta.counts`。
+- **不要复用已删除的 id**（S02/S05/S06、J04、F01-F16、SA01-SA08）：老用户这些记录按 v2→v3 规则会被丢弃，复用会让历史记录错位到新题上。
+- **填空/简答不自动判分**：前端只展示参考答案与解析，对错由用户点「我答对了 / 我答错了」决定，判定结果正常计入统计与错题本。
+- **校验**：`C:/Users/lzk_7/miniconda3/python.exe scripts/validate_questions.py` 按 `banks.json` 驱动，
+  检查结构与配比、id 规范（三段式）、跨库 id 唯一、跨库题干去重、领域键两两互斥；题库未完成时可加 `--allow-partial` 只校验已生成的题。
 
 ## 更新日志
 
+- v5（2026-10-12）：**三库 3000 题 + 两种自判题型**——题库拆为《指南》/《保育教育质量评估》/
+  《教育指导纲要》三个各 1000 题的独立文件（清单 `banks.json` + 按需加载），首页支持多库勾选与
+  合并刷题；新增**填空题（多空）**与**简答题**，均由用户对照参考答案自判（复用同一套 `recordAnswer`
+  口径）；每次练习随机抽题上限 100 题，结束页新增「再刷一遍 / 换一批」；数据升到 **v3**
+  （id 加库前缀并补零为三位，`S01 → G-S001`，旧 68 题并入 G）；修复「作答后 800ms 防抖未推送
+  即登出导致丢数据」；api-test 43 断言、e2e 127 断言。
 - v4（2026-10-11）：**架构重构**——后端迁移至 TypeScript（`src/`）、前端迁移至 TypeScript + Vite
   （`webapp/` → `dist/`）；存储确定为 **Cloudflare D1**（唯一后端，`Store` 接口抽象，schema 首次请求
   自动初始化，表：`users` / `invites` / `quiz_stores` / `meta`）；新增跨设备轮询同步、

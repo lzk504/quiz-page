@@ -5,10 +5,10 @@ import { getStore, removeFromWrongbook } from "../storage";
 import { displayAnswer } from "../scoring";
 import { esc, fmtTime } from "../utils";
 import { navigate } from "../router";
-import { domainTag, typeTag, emptyState, toast } from "../ui";
+import { typeTag, questionDomainTag, bankTag, emptyState, toast } from "../ui";
 import type { Question, View } from "../types";
 
-function shortAnswer(q: Question, max = 40): string {
+function shortAnswer(q: Question, max = 60): string {
   const text = displayAnswer(q) ?? "";
   return esc(text.length > max ? text.slice(0, max) + "…" : text);
 }
@@ -48,7 +48,7 @@ function render(root: HTMLElement): void {
         const w = store.wrongbook[q.id] ?? {};
         return `<article class="item" data-id="${esc(q.id)}">
           <div class="item__body">
-            <div class="item__tags">${typeTag(q.type)}${domainTag(q.domain)}
+            <div class="item__tags">${typeTag(q.type)}${questionDomainTag(q)}${bankTag(q)}
               <span class="tag tag--general">错 ${w.wrongCount ?? 1} 次</span>
             </div>
             <div class="item__stem">${esc(q.stem)}</div>

@@ -174,7 +174,7 @@ ok("状态 200", r.status === 200);
 ok("store 为 null", r.data?.store === null && r.data?.updatedAt === null);
 
 console.log("\n=== [10] PUT store 写入（应 200, 返回 updatedAt）===");
-r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 2, records: { Q1: { lastAt: 1000 } }, wrongbook: {}, updatedAt: 1000 }, baseUpdatedAt: 0 } });
+r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 3, records: { "G-S001": { lastAt: 1000 } }, wrongbook: {}, updatedAt: 1000 }, baseUpdatedAt: 0 } });
 ok("状态 200", r.status === 200, `实际 ${r.status}`);
 ok("返回 updatedAt", typeof r.data?.updatedAt === "number");
 
@@ -182,10 +182,11 @@ console.log("\n=== [11] GET store 读回（应 200, 有数据）===");
 r = await call("GET", "/api/store", { token: adminToken });
 ok("状态 200", r.status === 200);
 ok("store 非空", !!r.data?.store);
-ok("records.Q1 存在", !!r.data?.store?.records?.Q1);
+ok("records.G-S001 存在", !!r.data?.store?.records?.["G-S001"]);
+ok("store 原样透传（v3 三段式 id 不被改写）", r.data?.store?.version === 3 && "G-S001" in (r.data?.store?.records ?? {}));
 
 console.log("\n=== [12] PUT 乐观锁冲突（baseUpdatedAt 旧，应 409）===");
-r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 2, records: {}, wrongbook: {}, updatedAt: 1 }, baseUpdatedAt: 1 } });
+r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 3, records: {}, wrongbook: {}, updatedAt: 1 }, baseUpdatedAt: 1 } });
 ok("状态 409", r.status === 409, `实际 ${r.status}`);
 ok("返回 serverUpdatedAt", typeof r.data?.serverUpdatedAt === "number");
 
@@ -221,8 +222,8 @@ r = await call("POST", "/api/register", { body: { username: `dup_${rnd()}`, pass
 ok("状态 403 已被使用", r.status === 403, `实际 ${r.status}`);
 
 console.log("\n=== [18] 数据隔离：B 的 store 与 A 隔离 ===");
-await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 2, records: { ADMIN: { lastAt: 1 } }, wrongbook: {}, updatedAt: 1 }, baseUpdatedAt: 0 } });
-await call("PUT", "/api/store", { token: userBToken, body: { store: { version: 2, records: { USERB: { lastAt: 2 } }, wrongbook: {}, updatedAt: 2 }, baseUpdatedAt: 0 } });
+await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 3, records: { ADMIN: { lastAt: 1 } }, wrongbook: {}, updatedAt: 1 }, baseUpdatedAt: 0 } });
+await call("PUT", "/api/store", { token: userBToken, body: { store: { version: 3, records: { USERB: { lastAt: 2 } }, wrongbook: {}, updatedAt: 2 }, baseUpdatedAt: 0 } });
 r = await call("GET", "/api/store", { token: adminToken });
 ok("A store 含 ADMIN 不含 USERB", !!r.data?.store?.records?.ADMIN && !r.data?.store?.records?.USERB);
 r = await call("GET", "/api/store", { token: userBToken });

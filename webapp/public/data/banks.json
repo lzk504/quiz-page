@@ -1,0 +1,87 @@
+{
+  "version": 3,
+  "generatedAt": "2026-10-12",
+  "banks": [
+    {
+      "id": "G",
+      "title": "《3-6岁儿童学习与发展指南》",
+      "file": "data/bank-g.json",
+      "source": "教育部 2012年9月颁布《3-6岁儿童学习与发展指南》",
+      "domains": [
+        "health",
+        "language",
+        "society",
+        "science",
+        "art",
+        "general"
+      ],
+      "domainLabels": {
+        "health": "健康",
+        "language": "语言",
+        "society": "社会",
+        "science": "科学",
+        "art": "艺术",
+        "general": "综合"
+      },
+      "typeCounts": {
+        "single": 400,
+        "multiple": 200,
+        "judge": 200,
+        "fill": 100,
+        "short": 100
+      }
+    },
+    {
+      "id": "P",
+      "title": "幼儿园保育教育质量评估",
+      "file": "data/bank-p.json",
+      "source": "教育部《幼儿园保育教育质量评估指南》暨评估指标（5个方面·15项关键指标·48个考查要点）",
+      "domains": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ],
+      "domainLabels": {
+        "A1": "办园方向",
+        "A2": "保育与安全",
+        "A3": "教育过程",
+        "A4": "环境创设",
+        "A5": "教师队伍"
+      },
+      "typeCounts": {
+        "single": 400,
+        "multiple": 200,
+        "judge": 200,
+        "fill": 100,
+        "short": 100
+      }
+    },
+    {
+      "id": "Y",
+      "title": "幼儿园教育指导纲要",
+      "file": "data/bank-y.json",
+      "source": "教育部《幼儿园教育指导纲要（试行）》",
+      "domains": [
+        "zongze",
+        "neirong",
+        "zuzhi",
+        "pingjia"
+      ],
+      "domainLabels": {
+        "zongze": "总则",
+        "neirong": "教育内容与要求",
+        "zuzhi": "组织与实施",
+        "pingjia": "教育评价"
+      },
+      "typeCounts": {
+        "single": 400,
+        "multiple": 200,
+        "judge": 200,
+        "fill": 100,
+        "short": 100
+      }
+    }
+  ]
+}

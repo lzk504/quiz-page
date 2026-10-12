@@ -693,3 +693,94 @@ body:has(.app--auth) .tabbar { display: none; }
 }
 .sync-badge--err { background: var(--bad-soft); color: var(--bad); }
 .sync-badge--pend { background: var(--warn-soft); color: var(--warn); }
+
+/* ---------- 题库卡片（首页多选） ---------- */
+.bank-grid { display: grid; gap: 10px; }
+.bank-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  width: 100%; text-align: left; cursor: pointer;
+  padding: 13px 14px;
+  background: var(--card); border: 1.5px solid var(--line);
+  border-radius: var(--r); box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+  font: inherit; color: inherit;
+}
+.bank-card:hover:not(:disabled) { border-color: #b9c8d9; }
+.bank-card.is-on { border-color: var(--primary); background: var(--primary-100); }
+.bank-card:disabled { opacity: .55; cursor: not-allowed; }
+.bank-card__check {
+  flex: none; width: 22px; height: 22px; margin-top: 1px;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--line); border-radius: 6px;
+  background: #fff; color: #fff; font-size: 13px; font-weight: 700;
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.bank-card.is-on .bank-card__check { background: var(--primary); border-color: var(--primary); }
+.bank-card__body { flex: 1; min-width: 0; }
+.bank-card__title { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.bank-card__meta { font-size: 12.5px; color: var(--text-3); margin-top: 4px; line-height: 1.6; }
+.bank-card__meta b { color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.tag--bank {
+  background: var(--primary-100); color: var(--primary);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- 填空题 ---------- */
+.stem--fill { line-height: 2.5; }
+.blank-input {
+  display: inline-block;
+  min-width: 84px; width: auto;
+  max-width: 100%;
+  margin: 0 2px; padding: 3px 8px;
+  border: 1.5px solid var(--line); border-bottom-width: 1.5px;
+  border-radius: 6px;
+  background: #fff; color: var(--text);
+  font: inherit; font-size: 15px; text-align: center;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.blank-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-100); }
+
+.blank {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  margin: 0 3px; padding: 2px 9px;
+  border-radius: 6px; border: 1.5px solid var(--line);
+  background: var(--card-2);
+  font-size: 14.5px;
+  animation: optIn .2s var(--ease) both;
+}
+.blank em { font-style: normal; font-weight: 600; color: var(--text); }
+.blank i { font-style: normal; color: var(--text-3); }
+.blank i::before { content: "／"; margin-right: 5px; opacity: .6; }
+.blank.is-ok { border-color: var(--ok); background: var(--ok-soft); }
+.blank.is-ok i { color: #177a46; }
+.blank.is-bad { border-color: var(--bad); background: var(--bad-soft); }
+.blank.is-bad i { color: #c03c3c; }
+
+/* ---------- 简答题 ---------- */
+.short-input {
+  width: 100%; box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line); border-radius: var(--r);
+  background: #fff; color: var(--text);
+  font: inherit; font-size: 15px; line-height: 1.7;
+  resize: vertical;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.short-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-100); }
+
+.short-answer {
+  border: 1.5px dashed var(--line); border-radius: var(--r);
+  background: var(--card-2); padding: 11px 14px;
+}
+.short-answer__label { font-size: 12px; font-weight: 700; color: var(--text-3); margin-bottom: 5px; letter-spacing: .5px; }
+.short-answer__text { margin: 0; font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
+
+.answer-line__block { display: block; margin-top: 4px; line-height: 1.75; font-weight: 600; }
+
+/* ---------- 自判按钮 ---------- */
+.self-judge { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.btn--ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn--ok:active { background: #18844b; }
+.btn--bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn--bad:active { background: #c73f3f; }

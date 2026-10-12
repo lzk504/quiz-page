@@ -60,12 +60,19 @@ const view: View = {
         <h2 class="card__title">学习进度</h2>
         <div class="rate-row">
           <div class="rate-row__head">
-            <span>总进度（单选/多选/判断）</span>
+            <span>总进度（当前题池）</span>
             <span>${s.progress.answered}/${s.progress.total}　<b>${totalPct}%</b></span>
           </div>
           ${bar(totalPct, "bar--blue")}
         </div>
       </section>
+
+      ${s.byBank.length > 1 ? `
+        <section class="card">
+          <h2 class="card__title">分题库掌握情况 <small>按最近一次作答</small></h2>
+          ${rateRows(s.byBank, () => "bar--blue")}
+        </section>
+      ` : ""}
 
       <section class="card">
         <h2 class="card__title">分领域掌握情况 <small>按最近一次作答</small></h2>
@@ -81,8 +88,9 @@ const view: View = {
         <h2 class="card__title">口径说明</h2>
         <div class="about">
           <p>· <b>正确率</b> = 最近一次答对的题数 ÷ 已作答题数。同一题重复作答只按最后一次计入。</p>
-          <p>· <b>总进度</b> = 已作答题数 ÷ 题库总题数。</p>
-          <p>· 所有记录保存在云端（Cloudflare KV），可在设置页导出备份。</p>
+          <p>· <b>总进度</b> = 已作答题数 ÷ 当前题池题数（当前题池 = 首页选中的题库合并）。</p>
+          <p>· 填空题与简答题由你对照参考答案自行判定，判定结果同样计入统计与错题本。</p>
+          <p>· 所有记录保存在云端（Cloudflare D1），可在设置页导出备份。</p>
         </div>
         <div class="actions" style="margin-top:14px">
           <button class="btn btn--block" id="sWrong">查看错题本（${s.wrongCount}）</button>

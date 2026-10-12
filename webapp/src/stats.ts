@@ -1,10 +1,11 @@
 /**
  * 统计计算。纯函数：输入题库 + store，输出各类口径的统计对象。
  * 正确率口径：以每题「最近一次作答」是否答对为准（lastCorrect）。
+ * 输入 questions 为「当前题池」（选中库合并），故所有分桶都是该口径。
  */
 
 import { pct } from "./utils";
-import { domainLabels, typeLabels } from "./state";
+import { domainLabels, typeLabels, questionDomainLabel, getBank } from "./state";
 import type { Question, QuizStore } from "./types";
 
 interface Bucket {
@@ -27,16 +28,25 @@ export interface Stats {
   progress: { answered: number; total: number; percent: number };
   wrongCount: number;
   wrongIds: string[];
+  byBank: RateRow[];
   byDomain: RateRow[];
   byType: RateRow[];
 }
+
+const bankIdOf = (id: string): string => (id.includes("-") ? id.split("-")[0] : "");
 
 export function computeStats(questions: Question[], store: QuizStore | null | undefined): Stats {
   const records = store?.records ?? {};
   const wrongbook = store?.wrongbook ?? {};
 
-  const buckets: { all: Bucket; byDomain: Record<string, Bucket>; byType: Record<string, Bucket> } = {
+  const buckets: {
+    all: Bucket;
+    byBank: Record<string, Bucket>;
+    byDomain: Record<string, Bucket>;
+    byType: Record<string, Bucket>;
+  } = {
     all: { answered: 0, correct: 0, total: questions.length },
+    byBank: {},
     byDomain: {},
     byType: {},
   };
@@ -46,21 +56,28 @@ export function computeStats(questions: Question[], store: QuizStore | null | un
     return map[key];
   };
 
-  // 分母：按领域/题型统计题目总量
+  // 分母：按题库/领域/题型统计题目总量
+  const domainLabelOf = new Map<string, string>();
   for (const q of questions) {
+    const bank = bankIdOf(q.id);
+    ensure(buckets.byBank, bank, 0).total++;
     ensure(buckets.byDomain, q.domain, 0).total++;
     ensure(buckets.byType, q.type, 0).total++;
+    if (!domainLabelOf.has(q.domain)) domainLabelOf.set(q.domain, questionDomainLabel(q));
   }
 
   for (const q of questions) {
     const rec = records[q.id];
     if (!rec) continue;
+    const bank = bankIdOf(q.id);
     buckets.all.answered++;
     if (rec.lastCorrect) {
       buckets.all.correct++;
+      buckets.byBank[bank].correct++;
       buckets.byDomain[q.domain].correct++;
       buckets.byType[q.type].correct++;
     }
+    buckets.byBank[bank].answered++;
     buckets.byDomain[q.domain].answered++;
     buckets.byType[q.type].answered++;
   }
@@ -88,8 +105,11 @@ export function computeStats(questions: Question[], store: QuizStore | null | un
     wrongCount: wrongIds.length,
     wrongIds,
 
+    byBank: Object.entries(buckets.byBank).map(([key, v]) => ({
+      key, label: getBank(key)?.title ?? key, ...v, rate: pct(v.correct, v.answered),
+    })),
     byDomain: Object.entries(buckets.byDomain).map(([key, v]) => ({
-      key, label: dl[key] ?? key, ...v, rate: pct(v.correct, v.answered),
+      key, label: domainLabelOf.get(key) ?? dl[key] ?? key, ...v, rate: pct(v.correct, v.answered),
     })),
     byType: Object.entries(buckets.byType).map(([key, v]) => ({
       key, label: tl[key] ?? key, ...v, rate: pct(v.correct, v.answered),

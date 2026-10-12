@@ -1,33 +1,37 @@
 /**
- * 存储层：内存 cache + 云端（KV）同步。
+ * 存储层：内存 cache + 云端（D1）同步。
  *
  * 对外签名与旧 localStorage 版本保持一致（视图层零改动）：
  *   getStore() 同步返回 cache；recordAnswer/removeFromWrongbook 同步返回结果；
  *   saveStore 同步更新 cache + 异步推云端。
  *
- * store 结构（v2，与服务端同形）：
+ * store 结构（v3，与服务端同形——服务端不透明透传，不做 schema 校验）：
  * {
- *   version: 2,
+ *   version: 3,
  *   records:  { [qid]: { attempts, wrongAttempts, lastCorrect, lastUserAnswer, firstAt, lastAt } },
  *   wrongbook:{ [qid]: { wrongCount, addedAt, lastUserAnswer, lastWrongAt } },
  *   updatedAt: number
  * }
+ * qid 为三段式（如 G-S001），见 migrate.ts 的 ID_MIGRATION_V3。
  *
  * STORE_KEY 仅用于「首次上云迁移」：从本地旧 v1 数据读出后上云，然后清源。
  */
 
 import { emit } from "./state";
-import { migrateV1toV2, type LegacyStore } from "./migrate";
+import { migrateV1toV2, migrateV2toV3, type LegacyStore } from "./migrate";
 import { apiFetch, isLoggedIn } from "./auth";
 import type { Question, QuizStore, RecordEntry, WrongbookEntry, SyncStatus } from "./types";
 
 export const STORE_KEY = "quizapp.data.v1";   // 旧 localStorage key，仅迁移用
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+/** Chrome 对 keepalive 请求的 body 上限为 64KB，留出余量 */
+const KEEPALIVE_MAX_BYTES = 60000;
 
 let available = true;            // localStorage 可用性（token 存取兜底）
 let cache: QuizStore | null = null;   // 内存中的 store（同步读源）
 let baseUpdatedAt = 0;           // 服务端最近已知 updatedAt（乐观锁基线）
-let validIds: Set<string> | null = null;   // 题库 id 集（迁移剔除孤儿用）
+let validIds: Set<string> | null = null;   // 已加载题库 id 集（清理孤儿记录用）
+let bankPrefixes = new Set<string>();      // 已知题库前缀（G/P/Y），保护未加载库的记录
 let putTimer: ReturnType<typeof setTimeout> | null = null;  // debounce 定时器
 let putInFlight = false;         // 是否正在发送 PUT
 let putRetry = 0;                // 重试计数
@@ -65,7 +69,8 @@ function normalize(raw: unknown): QuizStore | null {
   if (!raw || typeof raw !== "object") return null;
   const src = raw as Partial<QuizStore>;
   const store = emptyStore();
-  store.version = Number(src.version) || SCHEMA_VERSION;
+  // 保留原始版本号（缺省记 0），以便迁移链判断是否需要升级
+  store.version = Number(src.version) || 0;
   store.updatedAt = Number(src.updatedAt) || 0;
   if (src.records && typeof src.records === "object" && !Array.isArray(src.records)) {
     store.records = src.records as Record<string, RecordEntry>;
@@ -76,14 +81,45 @@ function normalize(raw: unknown): QuizStore | null {
   return store;
 }
 
+/** 版本升级链：v1 → v2 → v3（幂等；已是最新版本原样返回） */
 function migrateIfNeeded(store: QuizStore | null): QuizStore {
-  if (!store || store.version >= SCHEMA_VERSION) return store ?? emptyStore();
-  return migrateV1toV2(store as unknown as LegacyStore, validIds);
+  if (!store) return emptyStore();
+  let s = store;
+  if ((Number(s.version) || 0) < 2) {
+    s = migrateV1toV2(s as unknown as LegacyStore, null);
+  }
+  if ((Number(s.version) || 0) < SCHEMA_VERSION) {
+    s = migrateV2toV3(s, null);
+  }
+  return s;
 }
 
-/** 注入题库 id 集；须在 initStorage() 之前调用 */
-export function setValidIds(ids: string[]): void {
+const bankPrefixOf = (id: string): string => (id.includes("-") ? id.split("-")[0] : "");
+
+/**
+ * 剔除无效记录：既不在「已加载题库」中、前缀也不是已知题库的条目。
+ * 前缀是已知题库时一定保留 —— 否则未勾选某库（未加载）会误删该库历史记录。
+ */
+function prune(store: QuizStore): QuizStore {
+  if (!validIds) return store;
+  const keep = (id: string): boolean => validIds!.has(id) || bankPrefixes.has(bankPrefixOf(id));
+  const filter = <T>(map: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {};
+    for (const [k, v] of Object.entries(map)) if (keep(k)) out[k] = v;
+    return out;
+  };
+  return { ...store, records: filter(store.records), wrongbook: filter(store.wrongbook) };
+}
+
+/** 归一化 + 迁移 + 清理（云端读取与导入共用的入口） */
+function revive(raw: unknown): QuizStore {
+  return prune(migrateIfNeeded(normalize(raw)));
+}
+
+/** 注入题库 id 集与题库前缀；须在 initStorage() 之前调用 */
+export function setValidIds(ids: string[], prefixes: string[] = []): void {
   validIds = new Set(ids);
+  bankPrefixes = new Set(prefixes);
 }
 
 /* ---------------- 云端读写 ---------------- */
@@ -93,8 +129,7 @@ async function loadStoreFromCloud(): Promise<QuizStore> {
   try {
     const data = await apiFetch<{ store: QuizStore | null; updatedAt: number | null }>("/api/store");
     if (data && data.store) {
-      const parsed = normalize(data.store);
-      const migrated = migrateIfNeeded(parsed);
+      const migrated = revive(data.store);
       baseUpdatedAt = data.updatedAt || migrated.updatedAt || 0;
       setSync("ok");
       return migrated;
@@ -102,7 +137,7 @@ async function loadStoreFromCloud(): Promise<QuizStore> {
     // 云端无数据：检查本地是否有旧 v1 数据，首次上云迁移
     const localStore = tryReadLocalLegacy();
     if (localStore) {
-      const migrated = migrateIfNeeded(localStore);
+      const migrated = revive(localStore);
       migrated.updatedAt = Date.now();
       try {
         const put = await apiFetch<{ updatedAt: number }>("/api/store", {
@@ -185,7 +220,7 @@ async function doPut(): Promise<void> {
       try {
         const remote = await apiFetch<{ store: QuizStore | null; updatedAt: number | null }>("/api/store");
         if (remote?.store) {
-          const merged = mergeWithRemote(normalize(remote.store) ?? emptyStore());
+          const merged = mergeWithRemote(revive(remote.store));
           cache = merged;
           baseUpdatedAt = remote.updatedAt || merged.updatedAt;
           emit("store-changed", cache);
@@ -254,16 +289,19 @@ export function flushStore(): void {
   const isEmpty = Object.keys(cache.records).length === 0 && Object.keys(cache.wrongbook).length === 0;
   if (isEmpty) return;
   try {
-    // keepalive:true 允许页面卸载后请求仍发出；body ≤64KB（store 远小于）
-    fetch("/api/store", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...getTokenHeader(),
-      },
-      body: JSON.stringify({ store: cache, baseUpdatedAt }),
-      keepalive: true,
-    }).catch(() => {});
+    const body = JSON.stringify({ store: cache, baseUpdatedAt });
+    const headers = {
+      "Content-Type": "application/json",
+      ...getTokenHeader(),
+    };
+    if (body.length > KEEPALIVE_MAX_BYTES) {
+      // 题量/记录变多后 body 可能超过 keepalive 的 64KB 上限（Chrome）：
+      // 降级为普通请求，交给常规 debounce PUT 兜底。
+      fetch("/api/store", { method: "PUT", headers, body }).catch(() => {});
+    } else {
+      // keepalive:true 允许页面卸载后请求仍发出
+      fetch("/api/store", { method: "PUT", headers, body, keepalive: true }).catch(() => {});
+    }
   } catch { /* ignore */ }
 }
 
@@ -386,7 +424,7 @@ export function validateImport(text: string): ImportCheck {
       return { ok: false, reason: `${key} 字段格式应为对象` };
     }
   }
-  const store = migrateIfNeeded(normalize(raw));
+  const store = revive(raw);
   return { ok: true, store, summary: summarize(raw) };
 }
 

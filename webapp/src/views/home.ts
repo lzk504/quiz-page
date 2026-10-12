@@ -1,12 +1,15 @@
-/** 首页：进度总览 + 领域×题型筛选 + 入口 */
+/** 首页：题库多选 + 进度总览 + 领域×题型筛选 + 入口 */
 
-import { getQuestions, getMeta, countBy, domainLabels, typeLabels } from "../state";
+import {
+  getQuestions, getMeta, getBanks, getSelectedBanks, setSelectedBanks, countBy, countByBank,
+  bankQuestionCount, isBankLoaded, isBankFailed, ensureBank, selectedDomains, domainLabels, typeLabels,
+} from "../state";
 import { getStore } from "../storage";
 import { computeStats } from "../stats";
 import { esc } from "../utils";
 import { navigate } from "../router";
 import { emptyState } from "../ui";
-import type { View } from "../types";
+import type { BankMeta, View } from "../types";
 
 /** 会话内保留筛选状态 */
 const filter = { domains: new Set<string>(), types: new Set<string>() };
@@ -30,19 +33,47 @@ function chip(label: string, count: number, on: boolean, dataAttr: string): stri
   </button>`;
 }
 
+/** 题库卡片（多选） */
+function bankCard(bank: BankMeta, on: boolean): string {
+  const loaded = isBankLoaded(bank.id);
+  const failed = isBankFailed(bank.id);
+  const targetTotal = Object.values(bank.typeCounts ?? {}).reduce((a, b) => a + b, 0);
+  const actual = bankQuestionCount(bank.id);
+  let meta: string;
+  if (failed) meta = `<span style="color:var(--bad)">加载失败，点击重试</span>`;
+  else if (!loaded) meta = `点击加载（目标 <b>${targetTotal}</b> 题）`;
+  else if (actual === 0) meta = `<span style="color:var(--text-3)">题目生成中（目标 ${targetTotal} 题）</span>`;
+  else meta = `<b>${actual}</b> 题　·　${bank.domains.map((d) => esc(bank.domainLabels[d] ?? d)).join(" / ")}`;
+
+  return `<button type="button" class="bank-card${on ? " is-on" : ""}" data-bank="${esc(bank.id)}" ${failed ? "" : ""}>
+    <span class="bank-card__check">${on ? "✓" : ""}</span>
+    <span class="bank-card__body">
+      <span class="bank-card__title">${esc(bank.title)}</span>
+      <span class="bank-card__meta">${meta}</span>
+    </span>
+  </button>`;
+}
+
 const view: View = {
   async render(root) {
+    const banks = getBanks();
+    const selected = new Set(getSelectedBanks());
     const questions = getQuestions();
     const meta = getMeta();
     const s = computeStats(questions, getStore());
 
-    if (!questions.length) {
-      root.innerHTML = emptyState({ icon: "📚", title: "题库为空", desc: "请检查 data/questions.json 是否正常加载。" });
+    if (!banks.length) {
+      root.innerHTML = emptyState({ icon: "📚", title: "题库清单为空", desc: "请检查 data/banks.json 是否正常加载。" });
       return;
     }
 
+    // 清理属于未选中库的筛选条件（避免切换题库后出现 0 命中的死筛选）
+    const availDomains = new Set(selectedDomains());
+    for (const d of [...filter.domains]) if (!availDomains.has(d)) filter.domains.delete(d);
+
     const dCounts = countBy("domain");
     const tCounts = countBy("type");
+    const bCounts = countByBank();
     const dl = domainLabels();
     const tl = typeLabels();
 
@@ -51,7 +82,7 @@ const view: View = {
 
     root.innerHTML = `
       <section class="hero">
-        <div class="hero__eyebrow">${esc(meta?.source ?? "教育部《3-6岁儿童学习与发展指南》")}</div>
+        <div class="hero__eyebrow">${esc(meta?.source ?? "学前教育政策与法规 · 考点精编")}</div>
         <h1 class="hero__title">考点精编 · 刷题手册</h1>
 
         <div class="hero__stats">
@@ -61,7 +92,7 @@ const view: View = {
         </div>
 
         <div class="hero__bar"><i style="width:${s.progress.percent}%"></i></div>
-        <p class="hero__hint">总进度 ${s.progress.percent}%</p>
+        <p class="hero__hint">当前题池 ${questions.length} 题　·　总进度 ${s.progress.percent}%</p>
 
         <button class="btn btn--block" id="quickStart">
           ${s.progress.answered ? "继续刷题" : "开始刷题"}
@@ -69,11 +100,19 @@ const view: View = {
       </section>
 
       <section class="card">
+        <h2 class="card__title">选择题库 <small>可多选，选中即合并刷题</small></h2>
+        <div class="bank-grid">
+          ${banks.map((b) => bankCard(b, selected.has(b.id))).join("")}
+        </div>
+        <p class="opt-hint">已选 ${selected.size} 个题库　·　当前题池 ${questions.length} 题（每次练习随机抽 ${Math.min(100, questions.length)} 题）</p>
+      </section>
+
+      <section class="card">
         <h2 class="card__title">按领域筛选 <small>不选 = 全部</small></h2>
         <div class="chips" id="domainChips">
-          ${Object.entries(dl).map(([k, label]) =>
-            chip(label, dCounts[k] ?? 0, filter.domains.has(k), `data-kind="domain" data-key="${k}"`)
-          ).join("")}
+          ${selectedDomains().map((k) =>
+            chip(dl[k] ?? k, dCounts[k] ?? 0, filter.domains.has(k), `data-kind="domain" data-key="${esc(k)}"`)
+          ).join("") || `<p class="about">暂无领域</p>`}
         </div>
       </section>
 
@@ -81,7 +120,7 @@ const view: View = {
         <h2 class="card__title">按题型筛选 <small>可多选组合</small></h2>
         <div class="chips" id="typeChips">
           ${Object.entries(tl).map(([k, label]) =>
-            chip(label, tCounts[k] ?? 0, filter.types.has(k), `data-kind="type" data-key="${k}"`)
+            chip(label, tCounts[k] ?? 0, filter.types.has(k), `data-kind="type" data-key="${esc(k)}"`)
           ).join("")}
         </div>
 
@@ -108,14 +147,48 @@ const view: View = {
       <section class="card">
         <h2 class="card__title">题库概览</h2>
         <div class="about">
-          <p>共 <b>${questions.length}</b> 题：${Object.entries(tl).map(([k, l]) => `${esc(l)} ${tCounts[k] ?? 0} 题`).join("　")}。</p>
-          <p>数据来源：${esc(meta?.source ?? "《3-6岁儿童学习与发展指南》")}。题目与解析取自《考点精编与刷题手册》。</p>
+          ${banks.map((b) => {
+            const n = bCounts[b.id] ?? 0;
+            const target = Object.values(b.typeCounts ?? {}).reduce((a, c) => a + c, 0);
+            return `<p>· <b>${esc(b.title)}</b>：${n ? `${n} 题` : `待生成（目标 ${target} 题）`}　·　领域 ${b.domains.map((d) => esc(b.domainLabels[d] ?? d)).join(" / ")}</p>`;
+          }).join("")}
+          <p>· 当前题池 <b>${questions.length}</b> 题：${Object.entries(tl).map(([k, l]) => `${esc(l)} ${tCounts[k] ?? 0}`).join("　")}。</p>
+          <p>· 数据来源：${esc(meta?.source ?? "学前教育政策与法规")}。</p>
         </div>
       </section>
     `;
 
     /* ---------- 事件 ---------- */
     const rerender = (): void => { void view.render(root); };
+
+    // 题库多选：点击切换选中（未加载则先按需加载）
+    root.querySelectorAll<HTMLButtonElement>(".bank-card").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.bank!;
+        const cur = new Set(getSelectedBanks());
+
+        // 加载失败或未加载 → 先尝试加载
+        if (!isBankLoaded(id) && !cur.has(id)) {
+          btn.disabled = true;
+          btn.querySelector(".bank-card__meta")!.textContent = "加载中…";
+          const bs = await ensureBank(id);
+          if (!bs) { rerender(); return; }
+          cur.add(id);
+          await setSelectedBanks([...cur]);
+          rerender();
+          return;
+        }
+
+        if (cur.has(id)) {
+          if (cur.size === 1) return;   // 至少保留一个题库
+          cur.delete(id);
+        } else {
+          cur.add(id);
+        }
+        await setSelectedBanks([...cur]);
+        rerender();
+      });
+    });
 
     root.querySelectorAll<HTMLButtonElement>(".chip").forEach((btn) => {
       btn.addEventListener("click", () => {

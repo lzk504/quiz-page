@@ -28,7 +28,7 @@ export interface UsersTable {
   byUsername: Record<string, { id: string; role: Role; createdAt: number }>;
 }
 
-/** 单用户刷题数据（KV: store:<u>），与前端 v2 schema 同形 */
+/** 单用户刷题数据（store:<u>），与前端 schema 同形（当前 v3；后端不解析内部结构，透传） */
 export interface QuizStore {
   version: number;
   records: Record<string, unknown>;
