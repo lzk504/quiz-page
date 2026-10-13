@@ -5,11 +5,12 @@
  *   getStore() 同步返回 cache；recordAnswer/removeFromWrongbook 同步返回结果；
  *   saveStore 同步更新 cache + 异步推云端。
  *
- * store 结构（v3，与服务端同形——服务端不透明透传，不做 schema 校验）：
+ * store 结构（v4，与服务端同形——服务端不透明透传，不做 schema 校验）：
  * {
- *   version: 3,
+ *   version: 4,
  *   records:  { [qid]: { attempts, wrongAttempts, lastCorrect, lastUserAnswer, firstAt, lastAt } },
  *   wrongbook:{ [qid]: { wrongCount, addedAt, lastUserAnswer, lastWrongAt } },
+ *   favorites:{ [qid]: { addedAt } },
  *   updatedAt: number
  * }
  * qid 为三段式（如 G-S001），见 migrate.ts 的 ID_MIGRATION_V3。
@@ -18,12 +19,12 @@
  */
 
 import { emit } from "./state";
-import { migrateV1toV2, migrateV2toV3, type LegacyStore } from "./migrate";
+import { migrateV1toV2, migrateV2toV3, migrateV3toV4, type LegacyStore } from "./migrate";
 import { apiFetch, isLoggedIn } from "./auth";
-import type { Question, QuizStore, RecordEntry, WrongbookEntry, SyncStatus } from "./types";
+import type { FavoriteEntry, Question, QuizStore, RecordEntry, WrongbookEntry, SyncStatus } from "./types";
 
 export const STORE_KEY = "quizapp.data.v1";   // 旧 localStorage key，仅迁移用
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /** Chrome 对 keepalive 请求的 body 上限为 64KB，留出余量 */
 const KEEPALIVE_MAX_BYTES = 60000;
 
@@ -43,6 +44,7 @@ const emptyStore = (): QuizStore => ({
   version: SCHEMA_VERSION,
   records: {},
   wrongbook: {},
+  favorites: {},
   updatedAt: 0,
 });
 
@@ -78,18 +80,24 @@ function normalize(raw: unknown): QuizStore | null {
   if (src.wrongbook && typeof src.wrongbook === "object" && !Array.isArray(src.wrongbook)) {
     store.wrongbook = src.wrongbook as Record<string, WrongbookEntry>;
   }
+  if (src.favorites && typeof src.favorites === "object" && !Array.isArray(src.favorites)) {
+    store.favorites = src.favorites as Record<string, FavoriteEntry>;
+  }
   return store;
 }
 
-/** 版本升级链：v1 → v2 → v3（幂等；已是最新版本原样返回） */
+/** 版本升级链：v1 → v2 → v3 → v4（幂等；已是最新版本原样返回） */
 function migrateIfNeeded(store: QuizStore | null): QuizStore {
   if (!store) return emptyStore();
   let s = store;
   if ((Number(s.version) || 0) < 2) {
     s = migrateV1toV2(s as unknown as LegacyStore, null);
   }
-  if ((Number(s.version) || 0) < SCHEMA_VERSION) {
+  if ((Number(s.version) || 0) < 3) {
     s = migrateV2toV3(s, null);
+  }
+  if ((Number(s.version) || 0) < SCHEMA_VERSION) {
+    s = migrateV3toV4(s);
   }
   return s;
 }
@@ -108,7 +116,7 @@ function prune(store: QuizStore): QuizStore {
     for (const [k, v] of Object.entries(map)) if (keep(k)) out[k] = v;
     return out;
   };
-  return { ...store, records: filter(store.records), wrongbook: filter(store.wrongbook) };
+  return { ...store, records: filter(store.records), wrongbook: filter(store.wrongbook), favorites: filter(store.favorites) };
 }
 
 /** 归一化 + 迁移 + 清理（云端读取与导入共用的入口） */
@@ -248,17 +256,17 @@ async function doPut(): Promise<void> {
   }
 }
 
-/** 远端 store 与本地 cache 按 lastAt 新者胜合并 */
+/** 远端 store 与本地 cache 按「各自的时间戳」新者胜合并 */
 function mergeWithRemote(remote: QuizStore): QuizStore {
   const cur = cache ?? emptyStore();
   const merged = emptyStore();
   merged.updatedAt = Math.max(cur.updatedAt || 0, remote.updatedAt || 0);
-  for (const key of ["records", "wrongbook"] as const) {
-    const out: Record<string, RecordEntry | WrongbookEntry> = { ...(cur[key] || {}) };
+  for (const key of ["records", "wrongbook", "favorites"] as const) {
+    const out: Record<string, RecordEntry | WrongbookEntry | FavoriteEntry> = { ...(cur[key] || {}) };
     for (const [qid, entry] of Object.entries(remote[key] || {})) {
-      const mine = out[qid] as (RecordEntry & WrongbookEntry) | undefined;
+      const mine = out[qid] as (RecordEntry & WrongbookEntry & FavoriteEntry) | undefined;
       const myTime = mine?.lastAt ?? mine?.lastWrongAt ?? mine?.addedAt ?? 0;
-      const e = entry as RecordEntry & WrongbookEntry;
+      const e = entry as RecordEntry & WrongbookEntry & FavoriteEntry;
       const theirTime = e?.lastAt ?? e?.lastWrongAt ?? e?.addedAt ?? 0;
       if (!mine || theirTime > myTime) out[qid] = entry;
     }
@@ -286,7 +294,9 @@ export function flushStore(): void {
   if (putTimer) { clearTimeout(putTimer); putTimer = null; }
   if (!isLoggedIn() || !cache) return;
   // 空 store 不 flush（clearAll 已 DELETE 云端，避免用空覆盖或与迁移冲突）
-  const isEmpty = Object.keys(cache.records).length === 0 && Object.keys(cache.wrongbook).length === 0;
+  const isEmpty = Object.keys(cache.records).length === 0
+    && Object.keys(cache.wrongbook).length === 0
+    && Object.keys(cache.favorites).length === 0;
   if (isEmpty) return;
   try {
     const body = JSON.stringify({ store: cache, baseUpdatedAt });
@@ -382,6 +392,31 @@ export function removeFromWrongbook(questionId: string): boolean {
   return true;
 }
 
+/* ---------------- 我的收藏 ---------------- */
+
+export const isFavorite = (questionId: string): boolean => !!getStore().favorites[questionId];
+
+export function addFavorite(questionId: string): boolean {
+  const store = getStore();
+  if (store.favorites[questionId]) return false;
+  store.favorites[questionId] = { addedAt: Date.now() };
+  saveStore(store);
+  return true;
+}
+
+export function removeFavorite(questionId: string): boolean {
+  const store = getStore();
+  if (!store.favorites[questionId]) return false;
+  delete store.favorites[questionId];
+  saveStore(store);
+  return true;
+}
+
+/** 切换收藏态，返回切换后的状态（true = 已收藏） */
+export function toggleFavorite(questionId: string): boolean {
+  return isFavorite(questionId) ? (removeFavorite(questionId), false) : (addFavorite(questionId), true);
+}
+
 export function clearAll(): boolean {
   cache = emptyStore();
   baseUpdatedAt = 0;
@@ -401,7 +436,7 @@ export interface ImportCheck {
   ok: boolean;
   store?: QuizStore;
   reason?: string;
-  summary?: { records: number; wrongbook: number };
+  summary?: { records: number; wrongbook: number; favorites: number };
 }
 
 /** 导入校验：不触碰现有数据。v1 旧备份自动迁移。 */
@@ -418,7 +453,7 @@ export function validateImport(text: string): ImportCheck {
   if (raw.version !== undefined && Number(raw.version) > SCHEMA_VERSION) {
     return { ok: false, reason: `备份版本 v${raw.version} 高于当前应用版本 v${SCHEMA_VERSION}` };
   }
-  for (const key of ["records", "wrongbook"]) {
+  for (const key of ["records", "wrongbook", "favorites"]) {
     const v = raw[key];
     if (v !== undefined && (typeof v !== "object" || v === null || Array.isArray(v))) {
       return { ok: false, reason: `${key} 字段格式应为对象` };
@@ -428,14 +463,15 @@ export function validateImport(text: string): ImportCheck {
   return { ok: true, store, summary: summarize(raw) };
 }
 
-function summarize(raw: any): { records: number; wrongbook: number } {
+function summarize(raw: any): { records: number; wrongbook: number; favorites: number } {
   return {
     records: Object.keys(raw.records ?? {}).length,
     wrongbook: Object.keys(raw.wrongbook ?? {}).length,
+    favorites: Object.keys(raw.favorites ?? {}).length,
   };
 }
 
-/** 导入应用：mode = 'replace' | 'merge'（merge 按 lastAt 新者胜） */
+/** 导入应用：mode = 'replace' | 'merge'（merge 按各自时间戳新者胜） */
 export function applyImport(store: QuizStore, mode: "replace" | "merge" = "replace"): QuizStore {
   if (mode === "replace") {
     cache = store;
@@ -444,11 +480,11 @@ export function applyImport(store: QuizStore, mode: "replace" | "merge" = "repla
     return cache;
   }
   const cur = getStore();
-  for (const key of ["records", "wrongbook"] as const) {
+  for (const key of ["records", "wrongbook", "favorites"] as const) {
     for (const [qid, entry] of Object.entries(store[key] ?? {})) {
       const mine = cur[key][qid] as { lastAt?: number } | undefined;
       const myTime = mine?.lastAt ?? 0;
-      const e = entry as RecordEntry & WrongbookEntry;
+      const e = entry as RecordEntry & WrongbookEntry & FavoriteEntry;
       const theirTime = e?.lastAt ?? e?.lastWrongAt ?? e?.addedAt ?? 0;
       if (!mine || theirTime > myTime) cur[key][qid] = entry as never;
     }

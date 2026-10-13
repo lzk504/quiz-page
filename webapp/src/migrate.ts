@@ -5,6 +5,7 @@
  *          并删除简答题（SA*）、S02/S05/S06/J04。v2 store 结构移除 recite 表。
  * v2 → v3：题库拆为三个库，旧 68 题并入指南库 G，id 加库前缀并统一三位序号
  *          （S01 → G-S001）。编号不变（跳号不复活），只重映射 key，不动作答数据。
+ * v3 → v4：新增 favorites（我的收藏），表为空；records / wrongbook 原样保留。
  *
  * 迁移规则：
  *  - records / wrongbook 的 key 按映射表重命名，统计口径（attempts/lastCorrect）原样保留
@@ -65,6 +66,7 @@ export interface LegacyStore {
   version?: number;
   records?: Record<string, LegacyEntry>;
   wrongbook?: Record<string, LegacyEntry>;
+  favorites?: Record<string, LegacyEntry>;
   recite?: Record<string, unknown>;
   updatedAt?: number;
 }
@@ -75,7 +77,7 @@ export interface LegacyStore {
  */
 export function migrateV1toV2(old: LegacyStore | null | undefined, validIds: Set<string> | null = null): QuizStore {
   const keep = (nid: string): boolean => !validIds || validIds.has(nid);
-  const out: QuizStore = { version: 2, records: {}, wrongbook: {}, updatedAt: old?.updatedAt ?? 0 };
+  const out: QuizStore = { version: 2, records: {}, wrongbook: {}, favorites: {}, updatedAt: old?.updatedAt ?? 0 };
 
   for (const [qid, rec] of Object.entries(old?.records ?? {})) {
     const nid = ID_MIGRATION[qid] ?? qid;
@@ -117,7 +119,7 @@ export function migrateV1toV2(old: LegacyStore | null | undefined, validIds: Set
  */
 export function migrateV2toV3(old: QuizStore | null | undefined, validIds: Set<string> | null = null): QuizStore {
   const keep = (nid: string): boolean => !validIds || validIds.has(nid);
-  const out: QuizStore = { version: 3, records: {}, wrongbook: {}, updatedAt: old?.updatedAt ?? 0 };
+  const out: QuizStore = { version: 3, records: {}, wrongbook: {}, favorites: {}, updatedAt: old?.updatedAt ?? 0 };
   const src = old as unknown as LegacyStore | null | undefined;
 
   for (const [qid, rec] of Object.entries(src?.records ?? {})) {
@@ -152,4 +154,24 @@ export function migrateV2toV3(old: QuizStore | null | undefined, validIds: Set<s
   }
 
   return out;
+}
+
+/**
+ * v3 → v4：新增 favorites（我的收藏）。
+ * 只补空表，records / wrongbook 原样保留；已有的 favorites（如跨端回灌 v4）原样透传。
+ */
+export function migrateV3toV4(old: QuizStore | null | undefined): QuizStore {
+  const src = (old ?? {}) as Partial<QuizStore>;
+  const favorites: QuizStore["favorites"] = {};
+  for (const [qid, f] of Object.entries(src.favorites ?? {})) {
+    if (!f || typeof f !== "object") continue;
+    favorites[qid] = { addedAt: Number((f as { addedAt?: number }).addedAt) || 0 };
+  }
+  return {
+    version: 4,
+    records: (src.records ?? {}) as QuizStore["records"],
+    wrongbook: (src.wrongbook ?? {}) as QuizStore["wrongbook"],
+    favorites,
+    updatedAt: Number(src.updatedAt) || 0,
+  };
 }

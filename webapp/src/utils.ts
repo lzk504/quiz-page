@@ -1,5 +1,8 @@
 /** 通用工具函数 */
 
+/** 应用名（唯一口径：顶栏品牌名 / 浏览器标题 / 首页主卡大标题都取这里） */
+export const APP_NAME = "考点精编";
+
 export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T | null =>
   root.querySelector<T>(sel);
 

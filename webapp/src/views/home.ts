@@ -1,37 +1,30 @@
-/** 首页：题库多选 + 进度总览 + 领域×题型筛选 + 入口 */
+/**
+ * 首页（v6 重写）：问候 + 备考横幅 + 今日目标 + 继续上次练习 + 快捷入口
+ *                  + 我的备考科目 + 今日推荐复习
+ *
+ * 说明：
+ *  - 应用大标题固定为 APP_NAME（考点精编），不随题库变化；
+ *  - 首页不再承担「选库 / 领域题型筛选」，这些职责移到题库 tab；
+ *  - 各库进度一律基于「全部已加载库」（getLoadedQuestions），不能用 getQuestions（只含刷题范围）。
+ */
 
 import {
-  getQuestions, getLoadedQuestions, getMeta, getBanks, getSelectedBanks, setSelectedBanks, countBy,
-  bankQuestionCount, isBankLoaded, isBankFailed, ensureBank, selectedDomains, domainLabels, typeLabels,
+  getBanks, getLoadedQuestions, getQuestion, bankQuestionCount, isBankLoaded, ensureBank,
+  questionDomainLabel, typeLabels, getBank, getSelectedBanks,
 } from "../state";
 import { getStore } from "../storage";
-import { computeStats } from "../stats";
-import { esc } from "../utils";
+import {
+  dailyGoal, streakDays, todayRecommended, daysUntil, DAILY_GOAL,
+  type RecGroup, WRONG_RED,
+} from "../goal";
+import { getExamDate, getLastScope, type LastScope } from "../local-prefs";
+import { getCurrentUser } from "../auth";
+import { esc, pct, APP_NAME, fmtDate } from "../utils";
 import { navigate } from "../router";
 import { emptyState } from "../ui";
-import type { BankMeta, View } from "../types";
+import type { BankMeta, Question, View } from "../types";
 
-/** 会话内保留筛选状态 */
-const filter = { domains: new Set<string>(), types: new Set<string>() };
-
-export function resetFilter(): void {
-  filter.domains.clear();
-  filter.types.clear();
-}
-
-function matchQuestions() {
-  return getQuestions().filter((q) => {
-    if (filter.domains.size && !filter.domains.has(q.domain)) return false;
-    if (filter.types.size && !filter.types.has(q.type)) return false;
-    return true;
-  });
-}
-
-function chip(label: string, count: number, on: boolean, dataAttr: string): string {
-  return `<button type="button" class="chip${on ? " is-on" : ""}" ${dataAttr}>
-    ${esc(label)}<span class="chip__n">${count}</span>
-  </button>`;
-}
+/* ---------------- 小工具 ---------------- */
 
 /** 简短书名提取：《…》取书名号内文本；没有书名号则用完整标题（不做硬截断） */
 function shortBankTitle(title: string): string {
@@ -39,303 +32,284 @@ function shortBankTitle(title: string): string {
   return match ? match[1] : title;
 }
 
-/** 单个题库的进度统计（基于全部已加载库，与是否选中无关） */
-type BankStat = { total: number; answered: number; correct: number };
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return "凌晨好";
+  if (h < 12) return "早上好";
+  if (h < 18) return "下午好";
+  return "晚上好";
+}
 
-/** 题库选择行：勾选态 + 书名 + 行内进度 */
-function bankSegment(bank: BankMeta, on: boolean, stat: BankStat | undefined, isLastSelected: boolean): string {
-  const loaded = isBankLoaded(bank.id);
-  const failed = isBankFailed(bank.id);
-  const shortTitle = shortBankTitle(bank.title);
-  const targetTotal = Object.values(bank.typeCounts ?? {}).reduce((a, b) => a + b, 0);
+interface BankStat { total: number; answered: number; correct: number }
 
-  let mark = `<span class="seg__mark seg__mark--idle"></span>`;
-  let nums = "";
-  let pct = 0;
+/** 各库进度（基于全部已加载库） */
+function bankStats(): Map<string, BankStat> {
+  const records = getStore().records ?? {};
+  const all = getLoadedQuestions();
+  const map = new Map<string, BankStat>();
+  for (const b of getBanks()) {
+    const qs = all.filter((q) => q.id.startsWith(b.id + "-"));
+    map.set(b.id, {
+      total: qs.length,
+      answered: qs.filter((q) => records[q.id]).length,
+      correct: qs.filter((q) => records[q.id]?.lastCorrect).length,
+    });
+  }
+  return map;
+}
 
-  if (failed) {
-    mark = `<span class="seg__mark seg__mark--fail">⚠</span>`;
-    nums = `<span class="seg__nums seg__nums--fail">加载失败 · 点击重试</span>`;
-  } else if (!loaded) {
-    mark = `<span class="seg__mark seg__mark--load">⋯</span>`;
-    nums = `<span class="seg__nums">目标 ${targetTotal} 题</span>`;
-  } else if (stat) {
-    if (on) mark = `<span class="seg__mark seg__mark--on">✓</span>`;
-    pct = stat.total ? Math.round((stat.answered / stat.total) * 100) : 0;
-    const rate = stat.answered ? `<b>${Math.round((stat.correct / stat.answered) * 100)}%</b>` : "";
-    nums = `<span class="seg__nums">${stat.answered}/${stat.total}${rate}</span>`;
+/* ---------------- 继续上次练习 ---------------- */
+
+/** 上次练习范围内的题池（已加载库口径） */
+function scopePool(scope: LastScope): Question[] {
+  const types = scope.type ? scope.type.split(",").filter(Boolean) : [];
+  return getLoadedQuestions().filter((q) => {
+    if (!scope.banks.includes(q.id.split("-")[0])) return false;
+    if (scope.domain && q.domain !== scope.domain) return false;
+    if (types.length && !types.includes(q.type)) return false;
+    return true;
+  });
+}
+
+function scopeLabel(scope: LastScope, pool: Question[]): string {
+  const parts: string[] = [];
+  const bankTitles = scope.banks
+    .map((id) => getBank(id))
+    .filter((b): b is BankMeta => !!b)
+    .map((b) => shortBankTitle(b.title));
+  if (bankTitles.length) parts.push(bankTitles.join(" + "));
+  if (scope.domain) {
+    const sample = pool.find((q) => q.domain === scope.domain);
+    parts.push(sample ? questionDomainLabel(sample) : scope.domain);
+  }
+  if (scope.type) parts.push(scope.type.split(",").filter(Boolean).map((t) => typeLabels()[t] ?? t).join("／"));
+  return parts.join(" · ") || "全部题目";
+}
+
+/* ---------------- 渲染片段 ---------------- */
+
+function continueCard(): string {
+  const scope = getLastScope();
+  const pool = scope ? scopePool(scope) : [];
+  const records = getStore().records ?? {};
+
+  if (!scope || !pool.length) {
+    return `
+      <section class="card continue-card" id="startCard">
+        <div class="continue-card__head">
+          <h2 class="card__title" style="margin:0">开始刷题</h2>
+          <span class="continue-card__tag">练习模式</span>
+        </div>
+        <p class="continue-card__desc">还没有练习足迹。先去题库挑一个章节，或者直接快速刷题。</p>
+        <div class="actions" style="margin-top:14px">
+          <button class="btn btn--primary" id="qStart">快速刷题</button>
+          <button class="btn" id="qGoBanks">去题库选章节</button>
+        </div>
+      </section>`;
   }
 
-  const tip = isLastSelected ? "至少保留一个题库" : bank.title;
+  const answered = pool.filter((q) => records[q.id]).length;
+  const correct = pool.filter((q) => records[q.id]?.lastCorrect).length;
+  const rest = Math.max(0, pool.length - answered);
+  const rate = answered ? pct(correct, answered) : 0;
 
-  return `<button type="button" class="seg seg--hero${on ? " is-on" : ""}" data-bank="${esc(bank.id)}"
-      aria-pressed="${on}" title="${esc(tip)}">
-    ${mark}
-    <span class="seg__body">
-      <span class="seg__row">
-        <span class="seg__name">${esc(shortTitle)}</span>
-        ${nums}
+  return `
+    <section class="card continue-card" id="continueCard">
+      <div class="continue-card__head">
+        <h2 class="card__title" style="margin:0">▷ 继续上次练习</h2>
+        <span class="continue-card__tag">练习模式</span>
+      </div>
+      <p class="continue-card__desc">${esc(scopeLabel(scope, pool))} · 还有 <b>${rest}</b> 题没做过。</p>
+      <div class="continue-card__meta">
+        <span>本范围进度 <b>${answered}/${pool.length}</b></span>
+        <span>正确率 ${answered ? `<b>${rate}%</b>` : "—"}</span>
+      </div>
+      <div class="rate-row__bar"><i class="bar--blue" style="width:${pct(answered, pool.length)}%"></i></div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn--primary" id="qContinue">接着做题</button>
+      </div>
+    </section>`;
+}
+
+/** 快捷入口 */
+function quickGrid(): string {
+  const items = [
+    { id: "quickChapter", icon: "▦", tone: "violet", label: "章节练习", desc: "按领域刷题" },
+    { id: "quickExam", icon: "⏱", tone: "red", label: "考试模式", desc: "100 题 · 60 分钟" },
+    { id: "quickWrong", icon: "✎", tone: "green", label: "错题本", desc: "重刷错题" },
+    { id: "quickFav", icon: "★", tone: "gold", label: "我的收藏", desc: "好题收藏" },
+  ];
+  return `<div class="quick-grid">${items.map((it) => `
+    <button class="quick" id="${it.id}">
+      <span class="quick__icon quick__icon--${it.tone}">${it.icon}</span>
+      <span>
+        <span class="quick__label">${it.label}</span>
+        <span class="quick__desc">${it.desc}</span>
       </span>
-      <span class="seg__bar"><i style="width:${pct}%"></i></span>
-    </span>
-  </button>`;
+    </button>`).join("")}</div>`;
 }
 
-/** 题库卡片（折叠详情中使用） */
-function bankCard(bank: BankMeta, on: boolean): string {
-  const loaded = isBankLoaded(bank.id);
-  const failed = isBankFailed(bank.id);
-  const targetTotal = Object.values(bank.typeCounts ?? {}).reduce((a, b) => a + b, 0);
-  const actual = bankQuestionCount(bank.id);
-  let meta: string;
-  if (failed) meta = `<span style="color:var(--bad)">加载失败，点击重试</span>`;
-  else if (!loaded) meta = `点击加载（目标 <b>${targetTotal}</b> 题）`;
-  else if (actual === 0) meta = `<span style="color:var(--text-3)">题目生成中（目标 ${targetTotal} 题）</span>`;
-  else meta = `<b>${actual}</b> 题　·　${bank.domains.map((d) => esc(bank.domainLabels[d] ?? d)).join(" / ")}`;
-
-  return `<button type="button" class="bank-card${on ? " is-on" : ""}" data-bank="${esc(bank.id)}">
-    <span class="bank-card__check">${on ? "✓" : ""}</span>
-    <span class="bank-card__body">
-      <span class="bank-card__title">${esc(bank.title)}</span>
-      <span class="bank-card__meta">${meta}</span>
-    </span>
-  </button>`;
+/** 我的备考科目 */
+function subjectList(stats: Map<string, BankStat>): string {
+  return `<div class="subject-list">${getBanks().map((b) => {
+    const st = stats.get(b.id) ?? { total: 0, answered: 0, correct: 0 };
+    const rate = st.answered ? pct(st.correct, st.answered) : 0;
+    const loaded = isBankLoaded(b.id);
+    const target = Object.values(b.typeCounts ?? {}).reduce((a, c) => a + c, 0) || bankQuestionCount(b.id);
+    return `<button class="subject" data-bank="${esc(b.id)}">
+      <span class="subject__badge subject__badge--${esc(b.id)}">${esc(b.id)}</span>
+      <span class="subject__body">
+        <span class="subject__title">${esc(b.title)}</span>
+        <span class="subject__meta">
+          <span>${loaded ? `已练 <b>${st.answered}</b> / ${st.total} 题` : `目标 ${target} 题 · 待加载`}</span>
+          <span>${st.answered ? `正确率 ${rate}%` : "未开始"}</span>
+        </span>
+        <span class="subject__bar"><i style="width:${st.total ? pct(st.answered, st.total) : 0}%"></i></span>
+      </span>
+    </button>`;
+  }).join("")}</div>`;
 }
 
-let showBankDetails = false;
+/** 今日推荐复习 */
+function recommendCard(recs: RecGroup[]): string {
+  const store = getStore();
+  const streak = streakDays(store);
+  const total = Object.keys(store.records ?? {}).length;
+
+  const body = recs.length
+    ? `<div class="rec-list">${recs.map((r) => `
+        <button class="rec rec--${r.level}" data-domain="${esc(r.domain)}">
+          <span class="rec__mark">❗</span>
+          <span class="rec__body">
+            <span class="rec__title">${esc(r.label)}</span>
+            <span class="rec__meta">累计错 ${r.maxWrong} 次 · 涉及 ${r.count} 道题</span>
+          </span>
+          <span class="rec__go rec__go--${r.level}">去复习 ›</span>
+        </button>`).join("")}</div>`
+    : `<p class="about" style="margin:0">暂无高频错题，继续保持！</p>`;
+
+  return `
+    <section class="card">
+      <h2 class="card__title">今日推荐复习
+        <small><button class="btn btn--sm btn--ghost" id="goWrongbook" style="padding:0 8px">错题本 ›</button></small>
+      </h2>
+      ${body}
+      <p class="hero__foot" style="color:var(--text-3);opacity:1">
+        连续学习 <b>${streak}</b> 天　·　累计做题 <b>${total}</b> 题
+        ${recs.some((r) => r.maxWrong >= WRONG_RED) ? "　·　红色组建议优先复习" : ""}
+      </p>
+    </section>`;
+}
+
+/* ---------------- 视图 ---------------- */
 
 const view: View = {
   async render(root) {
     const banks = getBanks();
-    const selected = new Set(getSelectedBanks());
-    const questions = getQuestions();
-    const meta = getMeta();
-    const store = getStore();
-    const s = computeStats(questions, store);
-
     if (!banks.length) {
       root.innerHTML = emptyState({ icon: "📚", title: "题库清单为空", desc: "请检查 data/banks.json 是否正常加载。" });
       return;
     }
 
-    // 清理属于未选中库的筛选条件（避免切换题库后出现 0 命中的死筛选）
-    const availDomains = new Set(selectedDomains());
-    for (const d of [...filter.domains]) if (!availDomains.has(d)) filter.domains.delete(d);
+    const store = getStore();
+    const user = getCurrentUser();
+    const username = user?.username ?? "同学";
+    const goal = dailyGoal(store);
+    const stats = bankStats();
+    const recs = todayRecommended(getLoadedQuestions(), store);
 
-    const dCounts = countBy("domain");
-    const tCounts = countBy("type");
-    const dl = domainLabels();
-    const tl = typeLabels();
+    const examDate = getExamDate();
+    const left = daysUntil(examDate);
+    const examRight = left === null
+      ? `设置考试日期 ›<small>暂未设置</small>`
+      : left >= 0
+        ? `${left} 天后开考<small>${esc(examDate!)}</small>`
+        : `已过考试日<small>${esc(examDate!)}</small>`;
 
-    // 各库进度：基于「全部已加载库」计算，未选中的库也能显示自己的进度
-    // （不能用 questions —— 它只含选中库，会把已加载未选中的库算成 0/0）
-    const records = store?.records ?? {};
-    const allLoaded = getLoadedQuestions();
-    const bankStat = new Map<string, BankStat>();
-    for (const b of banks) {
-      const bQs = allLoaded.filter((q) => q.id.startsWith(b.id + "-"));
-      bankStat.set(b.id, {
-        total: bQs.length,
-        answered: bQs.filter((q) => records[q.id]).length,
-        correct: bQs.filter((q) => records[q.id]?.lastCorrect).length,
-      });
-    }
-
-    const matched = matchQuestions();
-    const hasFilter = filter.domains.size > 0 || filter.types.size > 0;
+    const bankTitles = banks.map((b) => shortBankTitle(b.title));
+    const totalTarget = banks.reduce(
+      (a, b) => a + (Object.values(b.typeCounts ?? {}).reduce((x, y) => x + y, 0) || bankQuestionCount(b.id)), 0);
 
     root.innerHTML = `
-      <section class="hero">
-        <header class="hero__head">
-          <div class="hero__head-main">
-            <div class="hero__eyebrow">${esc(meta?.source ?? "学前教育政策与法规 · 考点精编")}</div>
-            <h1 class="hero__title">刷题手册</h1>
+      <section class="hero hero--home">
+        <div class="greet">
+          <div class="greet__avatar">${esc(username.slice(0, 1))}</div>
+          <div class="greet__text">
+            <h1 class="hero__title greet__name">${esc(APP_NAME)}</h1>
+            <p class="greet__hello">${greeting()}，${esc(username)} · 今天也要稳稳拿分</p>
           </div>
-          <div class="hero__head-side">
-            <span class="hero__head-count">已选 ${selected.size}/${banks.length} 库</span>
-            <button type="button" class="hero-head-btn" id="toggleSelectAll"
-              title="已选 ${selected.size}/${banks.length} 库，可多选">
-              ${selected.size === banks.length ? "单选指南" : "全选题库"}
-            </button>
-          </div>
-        </header>
-
-        <div class="hero__grid">
-          <!-- 统计 / 入口（移动端在前；桌面端由 grid-area 排到右列） -->
-          <div class="hero__col hero__col--stats">
-            <div class="hero__stats">
-              <div class="hero__stat"><b>${s.progress.answered}/${s.progress.total}</b><span>已刷题数</span></div>
-              <div class="hero__stat"><b>${s.answered ? s.rate + "%" : "—"}</b><span>正确率</span></div>
-              <div class="hero__stat"><b>${s.wrongCount}</b><span>错题在册</span></div>
-            </div>
-
-            <p class="hero__hint">当前题池 ${questions.length} 题　·　总进度 ${s.progress.percent}%</p>
-
-            <button class="btn btn--block" id="quickStart">
-              ${s.progress.answered ? "继续刷题" : "开始刷题"}
-            </button>
-          </div>
-
-          <!-- 题库选择（移动端在后；桌面端由 grid-area 排到左列） -->
-          <div class="hero__col hero__col--banks">
-            <div class="hero__panel">
-              <div class="seg-group">
-                ${banks.map((b) =>
-                  bankSegment(b, selected.has(b.id), bankStat.get(b.id), selected.size === 1 && selected.has(b.id))
-                ).join("")}
-              </div>
-              <button type="button" class="bank-details-toggle" id="toggleBankDetails">
-                ${showBankDetails ? "收起题库详细说明 ▲" : "查看各题库题量与指标详情 ▼"}
-              </button>
-              <div id="bankDetailsContainer" style="display:${showBankDetails ? "block" : "none"}">
-                <div class="bank-grid">
-                  ${banks.map((b) => bankCard(b, selected.has(b.id))).join("")}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">按领域筛选 <small>不选 = 全部</small></h2>
-        <div class="chips" id="domainChips">
-          ${selectedDomains().map((k) =>
-            chip(dl[k] ?? k, dCounts[k] ?? 0, filter.domains.has(k), `data-kind="domain" data-key="${esc(k)}"`)
-          ).join("") || `<p class="about">暂无领域</p>`}
-        </div>
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">按题型筛选 <small>可多选组合</small></h2>
-        <div class="chips" id="typeChips">
-          ${Object.entries(tl).map(([k, label]) =>
-            chip(label, tCounts[k] ?? 0, filter.types.has(k), `data-kind="type" data-key="${esc(k)}"`)
-          ).join("")}
+          <button class="greet__gear" id="goSettings" title="学习设置">⚙</button>
         </div>
 
-        <div class="filter-summary">
-          <span>命中 <b>${matched.length}</b> 题</span>
-          <span style="display:flex;gap:8px">
-            ${hasFilter ? `<button class="btn btn--sm btn--ghost" id="clearFilter">清除</button>` : ""}
-            <button class="btn btn--sm btn--primary" id="startFiltered" ${matched.length ? "" : "disabled"}>开始刷题</button>
+        <div class="exam-banner">
+          <div>
+            <b class="exam-banner__title">备考科目 · 学前教育考点精编</b>
+            <span class="exam-banner__sub">${esc(bankTitles.join(" / "))} · 共 ${totalTarget || 0} 题</span>
+          </div>
+          <button class="exam-banner__right" id="goExamDate">${examRight}</button>
+        </div>
+
+        <button class="goal" id="goDaily">
+          <span class="goal__head">
+            <span class="goal__label">今日目标 · ${DAILY_GOAL} 题</span>
+            <span class="goal__num"><b>${goal.done}</b> / ${goal.goal} 题 · 完成 ${goal.percent}%</span>
           </span>
-        </div>
+          <span class="goal__bar"><i style="width:${goal.percent}%"></i></span>
+        </button>
       </section>
 
+      ${continueCard()}
+      ${quickGrid()}
+
       <section class="card">
-        <h2 class="card__title">错题本 <small>${s.wrongCount} 题在册</small></h2>
-        <div class="setting-row" style="padding-top:0">
-          <div class="setting-row__text">
-            <b>${s.wrongCount ? `有 ${s.wrongCount} 道题待复习` : "暂无错题"}</b>
-            <span>${s.wrongCount ? "答错自动收录，重刷答对后自动移出" : "答错的题目会自动收进错题本"}</span>
-          </div>
-          <button class="btn btn--sm ${s.wrongCount ? "btn--primary" : ""}" id="goWrongbook" ${s.wrongCount ? "" : "disabled"}>查看</button>
-        </div>
+        <h2 class="card__title">我的备考科目
+          <small><button class="btn btn--sm btn--ghost" id="allBanks" style="padding:0 8px">全部题库 ›</button></small>
+        </h2>
+        ${subjectList(stats)}
       </section>
+
+      ${recommendCard(recs)}
     `;
 
     /* ---------- 事件 ---------- */
-    const rerender = (): void => { void view.render(root); };
+    const startDefault = (): void => navigate("practice", { fresh: "1" });
 
-    // 切换题库通用逻辑
-    const toggleBankSelection = async (id: string, btnElement?: HTMLButtonElement): Promise<void> => {
-      const cur = new Set(getSelectedBanks());
-      if (!isBankLoaded(id) && !cur.has(id)) {
-        if (btnElement) {
-          btnElement.disabled = true;
-          btnElement.classList.add("is-loading");
-          // 定点替换文本：整行 textContent 会抹掉勾选槽/进度条 DOM
-          const numsEl = btnElement.querySelector(".seg__nums, .bank-card__meta");
-          if (numsEl) numsEl.textContent = "加载中…";
-        }
-        const bs = await ensureBank(id);
-        if (!bs) { rerender(); return; }
-        cur.add(id);
-        await setSelectedBanks([...cur]);
-        rerender();
-        return;
-      }
+    root.querySelector("#goSettings")?.addEventListener("click", () => navigate("settings"));
+    root.querySelector("#goExamDate")?.addEventListener("click", () => navigate("settings"));
+    root.querySelector("#goDaily")?.addEventListener("click", () => navigate("practice", { mode: "daily" }));
 
-      if (cur.has(id)) {
-        if (cur.size === 1) return; // 至少保留一个题库
-        cur.delete(id);
-      } else {
-        cur.add(id);
-      }
-      await setSelectedBanks([...cur]);
-      rerender();
-    };
+    root.querySelector("#qStart")?.addEventListener("click", startDefault);
+    root.querySelector("#qGoBanks")?.addEventListener("click", () => navigate("banks"));
+    root.querySelector("#qContinue")?.addEventListener("click", () => {
+      const scope = getLastScope();
+      if (!scope) { startDefault(); return; }
+      const params: Record<string, string> = { banks: scope.banks.join(","), fresh: "0" };
+      if (scope.domain) params.domain = scope.domain;
+      if (scope.type) params.type = scope.type;
+      navigate("practice", params);
+    });
 
-    // 题库行点击
-    root.querySelectorAll<HTMLButtonElement>(".seg").forEach((btn) => {
+    root.querySelector("#quickChapter")?.addEventListener("click", () => navigate("banks"));
+    root.querySelector("#quickExam")?.addEventListener("click", () => navigate("practice", { mode: "exam" }));
+    root.querySelector("#quickWrong")?.addEventListener("click", () => navigate("wrongbook"));
+    root.querySelector("#quickFav")?.addEventListener("click", () => navigate("favorites"));
+
+    root.querySelector("#allBanks")?.addEventListener("click", () => navigate("banks"));
+    root.querySelectorAll<HTMLButtonElement>(".subject").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.bank;
-        if (id) void toggleBankSelection(id, btn);
+        if (id) void ensureBank(id);
+        navigate("banks", id ? { bank: id } : undefined);
       });
     });
 
-    // 展开卡片点击
-    root.querySelectorAll<HTMLButtonElement>(".bank-card").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.bank;
-        if (id) void toggleBankSelection(id, btn);
-      });
-    });
-
-    // 全选/单选切换
-    root.querySelector("#toggleSelectAll")?.addEventListener("click", async () => {
-      const allBanks = getBanks().map((b) => b.id);
-      const cur = getSelectedBanks();
-      if (cur.length === allBanks.length) {
-        // 全选状态下点击切回仅"G"
-        await setSelectedBanks(["G"]);
-      } else {
-        await setSelectedBanks(allBanks);
-      }
-      rerender();
-    });
-
-    // 折叠展开详情
-    root.querySelector("#toggleBankDetails")?.addEventListener("click", () => {
-      showBankDetails = !showBankDetails;
-      const container = root.querySelector<HTMLElement>("#bankDetailsContainer");
-      const toggle = root.querySelector<HTMLElement>("#toggleBankDetails");
-      if (container && toggle) {
-        container.style.display = showBankDetails ? "block" : "none";
-        toggle.textContent = showBankDetails ? "收起题库详细说明 ▲" : "查看各题库题量与指标详情 ▼";
-      }
-    });
-
-    root.querySelectorAll<HTMLButtonElement>(".chip").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const { kind, key } = btn.dataset;
-        if (!key) return;
-        const set = kind === "domain" ? filter.domains : filter.types;
-        if (set.has(key)) set.delete(key); else set.add(key);
-        rerender();
-      });
-    });
-
-    root.querySelector("#clearFilter")?.addEventListener("click", () => {
-      resetFilter();
-      rerender();
-    });
-
-    const start = (params?: Record<string, string>): void => navigate("practice", params);
-    const buildParams = (): Record<string, string> => {
-      const p: Record<string, string> = {};
-      if (filter.domains.size) p.domain = [...filter.domains].join(",");
-      if (filter.types.size) p.type = [...filter.types].join(",");
-      return p;
-    };
-
-    root.querySelector("#startFiltered")?.addEventListener("click", () => start(buildParams()));
-    root.querySelector("#quickStart")?.addEventListener("click", () => {
-      if (filter.domains.size || filter.types.size) start(buildParams());
-      else navigate("practice");
-    });
     root.querySelector("#goWrongbook")?.addEventListener("click", () => navigate("wrongbook"));
+    root.querySelectorAll<HTMLButtonElement>(".rec").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const domain = btn.dataset.domain;
+        navigate("practice", domain ? { mode: "wrong", domain } : { mode: "wrong" });
+      });
+    });
   },
 };
 

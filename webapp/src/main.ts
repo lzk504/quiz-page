@@ -4,17 +4,20 @@ import "./style.css";
 
 import { loadBanks, on, getMeta, getQuestions, getBanks } from "./state";
 import { initStorage, getStore, isPersistent, setValidIds, flushStore,
-  exportJson, validateImport, applyImport, clearAll } from "./storage";
+  exportJson, validateImport, applyImport, clearAll, toggleFavorite, isFavorite } from "./storage";
 import { initAuth, isLoggedIn, fetchMe, clearToken } from "./auth";
 import { startSync } from "./sync";
 import { register, startRouter, type Route } from "./router";
 import { computeStats } from "./stats";
-import { esc } from "./utils";
+import { esc, APP_NAME } from "./utils";
 import type { SyncStatus } from "./types";
 
 import home from "./views/home";
-import practice, { debugSession } from "./views/practice";
+import banks from "./views/banks";
+import practice, { debugSession, debugExam } from "./views/practice";
 import wrongbook from "./views/wrongbook";
+import me from "./views/me";
+import favorites from "./views/favorites";
 import stats from "./views/stats";
 import settings from "./views/settings";
 import login from "./views/login";
@@ -25,12 +28,25 @@ import login from "./views/login";
  * 供 e2e 测试与浏览器控制台排查使用。
  */
 (window as unknown as { __quiz: unknown }).__quiz = {
-  storage: { getStore, exportJson, validateImport, applyImport, clearAll },
-  practice: { session: debugSession },
+  storage: {
+    getStore, exportJson, validateImport, applyImport, clearAll,
+    // 调试用：收藏读写（视图外的快捷入口，供 e2e 构造数据）
+    favorites: () => ({ ...getStore().favorites }),
+    isFavorite, toggleFavorite,
+  },
+  practice: { session: debugSession, exam: debugExam },
+  /** 应用名（e2e 断言标题口径用） */
+  appName: APP_NAME,
 };
 
 const TAB_OF_ROUTE: Record<string, string> = {
-  home: "home", practice: "practice", wrongbook: "wrongbook", stats: "stats", settings: "settings",
+  home: "home",
+  banks: "banks",
+  wrongbook: "wrongbook",
+  me: "me",
+  // 子页归属「我的」
+  stats: "me", settings: "me", favorites: "me",
+  // practice 不在表内：沉浸页不高亮任何 tab
 };
 
 /* ---------------- 顶栏 / 标签栏同步 ---------------- */
@@ -114,8 +130,11 @@ async function boot(): Promise<void> {
   const app = document.getElementById("app")!;
 
   register("home", home);
+  register("banks", banks);
   register("practice", practice);
   register("wrongbook", wrongbook);
+  register("me", me);
+  register("favorites", favorites);
   register("stats", stats);
   register("settings", settings);
   register("login", login);
@@ -175,8 +194,8 @@ async function boot(): Promise<void> {
   });
   window.addEventListener("beforeunload", () => flushStore());
 
-  const meta = getMeta();
-  if (meta?.title) document.title = meta.title;
+  // 文档标题固定为应用名，不随题库/视图变化（口径见 utils.APP_NAME）
+  document.title = APP_NAME;
 
   startRouter((route) => syncChrome(route));
 }

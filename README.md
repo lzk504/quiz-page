@@ -1,6 +1,6 @@
-# 《3-6岁儿童学习与发展指南》刷题手册
+# 考点精编
 
-刷题网页应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**，
+学前教育备考刷题应用。**TypeScript 全栈**：后端 Cloudflare Workers + **D1**，
 前端 TypeScript + **Vite** 构建。参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
 的分层架构：可插拔存储、路由中间件、JWT 用户体系、D1 schema 首次请求自动初始化。
 
@@ -16,13 +16,21 @@
 
 ## 功能
 
+- **四栏导航：首页 / 题库 / 错题本 / 我的**
 - **三库 3000 题**：《3-6岁儿童学习与发展指南》/《幼儿园保育教育质量评估》/《幼儿园教育指导纲要》各 1000 题
   （每库单选 400 / 多选 200 / 判断 200 / 填空 100 / 简答 100），全部对照原文编写与校订
 - **五种题型**：客观题即时判分并展示解析；**填空/简答题由用户对照参考答案自行判定**（不做文本自动判分）
+- **今日目标**：每日 100 题目标，首页进度条与打卡提示
+- **考试模式**：60 分钟 100 题，作答过程零反馈，交卷后统一自评、出分、查看逐题清单与分题型得分
+- **我的收藏**：题目卡片可星标收藏，收藏列表隐藏参考答案，支持取消收藏与单题重做
+- **题库 tab**：选库、章节（领域）目录、题型说明、刷题范围设置；点击章节或题型直接进入练习
+- **错题本**：按题型筛选，展示「我的答案 / 正确答案 / 解析」，显示错因次数角标（≥2 次黄、≥3 次红），
+  支持重做本题与批量移出；首页「今日推荐复习」自动列出高频错题
+- **个人中心**：累计做题、正确率、错题在册；本周学习小结；齿轮入口进入学习设置页
+- **学习设置**：备考日期设置、数据导入/导出、邀请码管理；固定标题「考点精编」
 - **题库多选/合并刷题**：可单库也可多库合并出题，每次随机抽题**上限 100 题**；结束页支持
   「再刷一遍」（同一批重新打乱）与「换一批」（重新抽题）
 - **双维度筛选**：领域 × 题型任意组合；**正确率/进度统计**（整体、分题库、分领域、分题型）
-- **错题本**：答错自动收录，重刷答对自动移出，支持手动移除
 - **用户体系**：注册需邀请码（一次性），**首个注册用户自动成为管理员**
 - **云端同步**：数据按用户隔离存于 D1，多设备登录自动同步（乐观锁 + lastAt 新者胜合并）
 - **管理员能力**：生成/管理邀请码；导出全站全量备份（JSON）
@@ -50,18 +58,20 @@ webapp/                      前端（TypeScript）
   vite.config.ts             构建配置（outDir=../dist）
   public/data/banks.json     题库清单（唯一数据入口）
   public/data/bank-*.json    各题库文件（G/P/Y，按需加载，构建时原样进 dist）
-  src/
-    main.ts / router.ts                 入口与 hash 路由（登录守卫）
-    state.ts                            题库清单 + 按需加载 + 选中库偏好
-    auth.ts / storage.ts / sync.ts       鉴权 / 云端 store 同步（乐观锁+防抖）/ 30s 轮询
-    migrate.ts / scoring.ts / stats.ts   数据迁移 v1→v2→v3 / 判分 / 统计口径
-    ui.ts / utils.ts / types.ts
-    views/{login,home,practice,wrongbook,stats,settings}.ts
+    src/
+      main.ts / router.ts                 入口与 hash 路由（登录守卫 + 4 tab 壳层）
+      state.ts                            题库清单 + 按需加载 + 选中库偏好
+      auth.ts / storage.ts / sync.ts       鉴权 / 云端 store 同步（乐观锁+防抖）/ 30s 轮询
+      migrate.ts / scoring.ts / stats.ts   数据迁移 v1→v2→v3→v4 / 判分 / 统计口径
+      goal.ts / local-prefs.ts            学习节奏计算 / 本机偏好（考试日期等）
+      ui.ts / utils.ts / types.ts
+      views/{login,home,banks,me,practice,wrongbook,stats,settings,favorites}.ts
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
 wrangler.toml                Worker 配置（D1 + KV 限额计数 + assets）
 scripts/
-  api-test.ts                API 冒烟测试（tsx 运行，43 断言，MockStore）
-  e2e-check.js               端到端测试（Puppeteer，127 断言，需 wrangler dev）
+  api-test.ts                API 冒烟测试（tsx 运行，44 断言，MockStore）
+  e2e-check.js               端到端测试入口（运行 `_verify-v6.mjs`）
+  _verify-v6.mjs             v6 真实浏览器端到端验证（Puppeteer，82 断言，需 wrangler dev）
   *.py                       题库生成/校验脚本（本地工具链，已 gitignore，不入库）
 ```
 
@@ -175,21 +185,21 @@ meta         (key PK, value)
 ## 测试
 
 ```bash
-npm test                # API 冒烟测试（tsx + MockStore，43 断言，无需起服务）
+npm test                # API 冒烟测试（tsx + MockStore，44 断言，无需起服务）
 npm run dev &           # 起 wrangler dev（本地 D1 模拟）
-node scripts/e2e-check.js   # 端到端（127 断言，Puppeteer + 本机 Chrome）
+npm run e2e             # 端到端（Puppeteer + 本机 Chrome，82 断言）
 
 # 题库结构与配比校验（本地工具链，已 gitignore）
 C:/Users/lzk_7/miniconda3/python.exe scripts/validate_questions.py --quiet
 ```
 
-e2e 覆盖：未登录重定向、首用户注册（自动 admin）、三库清单与 id 规范、五种题型作答
-（含填空/简答的**用户自判**两条判定路径）、题库多选/切换/偏好持久化与 `P-` 前缀抽题、
-抽题上限 100 与「再刷一遍/换一批」、错题本、统计、设置页账号/邀请码、导出结构 v3、
-刷新持久化（云端拉回）、360px/桌面端布局、深链接筛选、v1→v3 与 v2→v3 迁移、
-登出登录 round-trip、数据隔离、邀请码一次性、重复用户名 409、无 token 401、token 篡改跳登录。
+e2e 覆盖：未登录重定向、首用户注册（自动 admin）、标题固定「考点精编」、四 tab 壳层、
+首页（今日目标/快捷入口/备考科目/今日推荐复习）、题库 tab（选库/章节/题型/刷题范围）、
+练习收藏星标、考试模式（100 题/60 分钟/零反馈/自评/出分）、错题本（题型筛选/重做/高频角标）、
+个人中心/学习设置/考试日期、数据报告、响应式 6 档宽度、控制台零错误、
+v3→v4 迁移（补 `favorites` 字段）。
 
-e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... node scripts/e2e-check.js`
+e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... npm run e2e`
 指向任意部署做验证。
 
 ## 维护题库
@@ -224,6 +234,13 @@ data/bank-y.json   《幼儿园教育指导纲要》
 
 ## 更新日志
 
+- v6（2026-10-13）：**备考 App 升级**——底部导航改为 4 tab（首页/题库/错题本/我的），
+  首页新增今日目标、考试模式快捷入口、我的备考科目、今日推荐复习；新增**题库 tab**（选库、
+  章节目录、题型说明、刷题范围）；新增**考试模式**（60 分钟/100 题/零反馈/交卷自评/出分）；
+  新增**我的收藏**（星标收藏、收藏列表隐藏答案）；新增**个人中心**与学习设置页；
+  错题本支持按题型筛选、错误次数角标（≥2 黄/≥3 红）、批量移出；数据升到 **v4**（新增
+  `favorites` 字段）；全站视觉改为紫色备考主题，浏览器标签与顶部品牌统一为「考点精编」；
+  api-test 44 断言、v6 e2e 82 断言。
 - v5（2026-10-12）：**三库 3000 题 + 两种自判题型**——题库拆为《指南》/《保育教育质量评估》/
   《教育指导纲要》三个各 1000 题的独立文件（清单 `banks.json` + 按需加载），首页支持多库勾选与
   合并刷题；新增**填空题（多空）**与**简答题**，均由用户对照参考答案自判（复用同一套 `recordAnswer`

@@ -1,8 +1,9 @@
-/** 统计页：整体正确率 + 分领域/分题型 */
+/** 统计页（数据报告）：整体正确率 + 分领域/分题型 + 近 7 天节奏 */
 
-import { getQuestions } from "../state";
+import { getLoadedQuestions } from "../state";
 import { getStore } from "../storage";
 import { computeStats, type RateRow } from "../stats";
+import { recentAnswered, dailyGoal, streakDays } from "../goal";
 import { esc } from "../utils";
 import { navigate } from "../router";
 import { bar, emptyState } from "../ui";
@@ -28,28 +29,44 @@ function rateRows(list: RateRow[], barKey?: (row: RateRow) => string): string {
 
 const view: View = {
   async render(root) {
-    const questions = getQuestions();
-    const s = computeStats(questions, getStore());
+    const questions = getLoadedQuestions();
+    const store = getStore();
+    const s = computeStats(questions, store);
+    const recent = recentAnswered(store, 7);
+    const goal = dailyGoal(store);
+    const streak = streakDays(store);
+
+    const head = `
+      <div class="page-head">
+        <button class="page-head__back" id="sBack" title="返回">‹</button>
+        <h1 class="page-head__title">数据报告</h1>
+      </div>`;
+
+    const bindHead = (): void => {
+      root.querySelector("#sBack")?.addEventListener("click", () => navigate("me"));
+    };
 
     if (!questions.length) {
-      root.innerHTML = emptyState({ icon: "📊", title: "暂无可统计的数据" });
+      root.innerHTML = head + emptyState({ icon: "📊", title: "暂无可统计的数据" });
+      bindHead();
       return;
     }
 
     if (!s.answered) {
-      root.innerHTML = emptyState({
+      root.innerHTML = head + emptyState({
         icon: "📊",
         title: "还没有答题记录",
         desc: "刷几道题之后，这里会显示正确率、分领域与分题型的掌握情况。",
         action: `<button class="btn btn--primary" id="sPractice">去刷题</button>`,
       });
-      root.querySelector("#sPractice")?.addEventListener("click", () => navigate("practice"));
+      bindHead();
+      root.querySelector("#sPractice")?.addEventListener("click", () => navigate("practice", { fresh: "1" }));
       return;
     }
 
     const totalPct = s.progress.percent;
 
-    root.innerHTML = `
+    root.innerHTML = head + `
       <div class="stat-grid" style="margin-bottom:14px">
         <div class="stat stat--rate"><b>${s.rate}%</b><span>正确率</span></div>
         <div class="stat"><b>${s.answered}</b><span>已答题数</span></div>
@@ -57,13 +74,23 @@ const view: View = {
       </div>
 
       <section class="card">
-        <h2 class="card__title">学习进度</h2>
+        <h2 class="card__title">学习节奏</h2>
         <div class="rate-row">
           <div class="rate-row__head">
-            <span>总进度（当前题池）</span>
+            <span>今日目标</span>
+            <span>${goal.done}/${goal.goal} 题　<b>${goal.percent}%</b></span>
+          </div>
+          ${bar(goal.percent, "bar--blue")}
+        </div>
+        <div class="rate-row">
+          <div class="rate-row__head">
+            <span>总进度（全部已加载题库）</span>
             <span>${s.progress.answered}/${s.progress.total}　<b>${totalPct}%</b></span>
           </div>
           ${bar(totalPct, "bar--blue")}
+        </div>
+        <div class="about" style="margin-top:12px">
+          <p>· 近 7 天做题 <b>${recent}</b> 题　·　连续打卡 <b>${streak}</b> 天</p>
         </div>
       </section>
 
@@ -88,9 +115,10 @@ const view: View = {
         <h2 class="card__title">口径说明</h2>
         <div class="about">
           <p>· <b>正确率</b> = 最近一次答对的题数 ÷ 已作答题数。同一题重复作答只按最后一次计入。</p>
-          <p>· <b>总进度</b> = 已作答题数 ÷ 当前题池题数（当前题池 = 首页选中的题库合并）。</p>
+          <p>· <b>总进度</b> = 已作答题数 ÷ 全部已加载题库的题数。</p>
+          <p>· <b>今日目标 / 连续打卡 / 近 7 天</b> 按本机日期与每题的「最近一次作答时间」统计。</p>
           <p>· 填空题与简答题由你对照参考答案自行判定，判定结果同样计入统计与错题本。</p>
-          <p>· 所有记录保存在云端（Cloudflare D1），可在设置页导出备份。</p>
+          <p>· 所有记录保存在云端（Cloudflare D1），可在「我的 → 学习设置」导出备份。</p>
         </div>
         <div class="actions" style="margin-top:14px">
           <button class="btn btn--block" id="sWrong">查看错题本（${s.wrongCount}）</button>
@@ -98,6 +126,7 @@ const view: View = {
       </section>
     `;
 
+    bindHead();
     root.querySelector("#sWrong")?.addEventListener("click", () => navigate("wrongbook"));
   },
 };

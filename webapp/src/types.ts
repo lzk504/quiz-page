@@ -57,11 +57,18 @@ export interface WrongbookEntry {
   lastWrongAt: number;
 }
 
-/** 刷题数据（与后端 store schema 同形：v3） */
+/** 收藏条目（v4 新增） */
+export interface FavoriteEntry {
+  addedAt: number;
+}
+
+/** 刷题数据（与后端 store schema 同形：v4；后端纯透传，不做校验） */
 export interface QuizStore {
   version: number;
   records: Record<string, RecordEntry>;
   wrongbook: Record<string, WrongbookEntry>;
+  /** 我的收藏：qid → { addedAt } */
+  favorites: Record<string, FavoriteEntry>;
   updatedAt: number;
 }
 

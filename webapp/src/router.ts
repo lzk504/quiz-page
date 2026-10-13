@@ -1,9 +1,9 @@
 /**
  * 极简 hash 路由。
- *   #/home   #/login
- *   #/practice?domain=health&type=single
- *   #/practice?mode=wrong
- *   #/wrongbook  #/stats  #/settings
+ *   #/home  #/banks  #/wrongbook  #/me  #/login
+ *   #/practice?domain=health&type=single    练习模式
+ *   #/practice?mode=wrong|daily|fav|exam    错题重刷 / 今日目标 / 单题练习 / 考试
+ *   #/favorites  #/stats  #/settings
  *
  * 登录守卫：未登录访问非 login 视图 → 重定向 #/login；已登录访问 #/login → #/home。
  */
@@ -16,6 +16,8 @@ let current: View | null = null;
 let onAfter: ((route: Route) => void) | null = null;
 
 const PUBLIC_VIEWS = new Set(["login"]);
+/** 自带标题区（蓝卡 / 紫卡 / 沉浸页）的视图：隐藏顶栏品牌栏 */
+const TOPBAR_HIDDEN = new Set(["home", "me", "practice", "login"]);
 
 export function register(name: string, view: View): void {
   views.set(name, view);
@@ -79,6 +81,8 @@ async function render(): Promise<void> {
   app.classList.toggle("app--flush", view === "practice");
   // 登录页隐藏底部导航与顶栏统计
   app.classList.toggle("app--auth", view === "login");
+  // 自带标题区的视图隐藏顶栏品牌栏
+  app.classList.toggle("app--nobar", TOPBAR_HIDDEN.has(view));
   window.scrollTo({ top: 0, behavior: "auto" });
 
   try {

@@ -1,314 +1,213 @@
-/** 错题本：归类汇总 · 领域/题库两级嵌套折叠 · 筛选与重刷入口 */
+/**
+ * 错题本（v6 重写）：三数字概览 + 题型筛选 + 平铺卡片（我的答案 / 正确答案 / 错因解析）
+ *                    + 单题重做 / 收藏 / 移出 + 批量移出 + 一键重做
+ *
+ * 与旧版的区别：移除「题库→领域」两级折叠与三个下拉，改为题型 chips + 平铺列表。
+ */
 
-import { getQuestions, getBanks, getBank } from "../state";
-import { getStore, removeFromWrongbook } from "../storage";
-import { displayAnswer } from "../scoring";
-import { esc, fmtTime } from "../utils";
+import { getLoadedQuestions, getQuestion } from "../state";
+import { getStore, removeFromWrongbook, toggleFavorite, isFavorite } from "../storage";
+import { displayAnswer, displayUserAnswer } from "../scoring";
+import { wrongbookStats, wrongLevel } from "../goal";
+import { esc, fmtTime, pct } from "../utils";
 import { navigate } from "../router";
 import { typeTag, questionDomainTag, bankTag, emptyState, toast } from "../ui";
 import type { Question, View, WrongbookEntry } from "../types";
 
-function shortAnswer(q: Question, max = 120): string {
-  const text = displayAnswer(q) ?? "";
-  return esc(text.length > max ? text.slice(0, max) + "…" : text);
+/* ---------------- 模块级 UI 状态 ---------------- */
+
+let activeType = "all";
+let batchMode = false;
+const checked = new Set<string>();
+
+const TYPE_FILTERS: Array<{ key: string; label: string }> = [
+  { key: "all", label: "全部题型" },
+  { key: "single", label: "单选题" },
+  { key: "multiple", label: "多选题" },
+  { key: "judge", label: "判断题" },
+  { key: "fill", label: "填空题" },
+  { key: "short", label: "简答题" },
+];
+
+/** 答案文本截断（错因解析/简答参考答案可能很长） */
+function clip(text: string, max = 220): string {
+  return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
-// 筛选状态保留
-let selectedBankFilter = "all";   // "all" | bankId
-let selectedDomainFilter = "all"; // "all" | domainId
-let groupMode = "bank-domain";    // "bank-domain" | "domain" | "flat"
+interface Item { q: Question; w: WrongbookEntry; wrongAttempts: number }
 
-interface DomainGroup {
-  domain: string;
-  domainLabel: string;
-  items: Array<{ q: Question; w: WrongbookEntry }>;
+function collect(): Item[] {
+  const store = getStore();
+  const records = store.records ?? {};
+  const out: Item[] = [];
+  for (const q of getLoadedQuestions()) {
+    const w = store.wrongbook[q.id];
+    if (!w) continue;
+    out.push({ q, w, wrongAttempts: records[q.id]?.wrongAttempts ?? w.wrongCount ?? 1 });
+  }
+  // 错误次数多的排在前面，「上次错误」近的次之
+  return out.sort(
+    (a, b) => b.wrongAttempts - a.wrongAttempts || (b.w.lastWrongAt ?? 0) - (a.w.lastWrongAt ?? 0),
+  );
 }
 
-interface BankGroup {
-  bankId: string;
-  bankTitle: string;
-  domains: DomainGroup[];
-  totalCount: number;
-}
+function renderItem(it: Item): string {
+  const { q, w, wrongAttempts } = it;
+  const level = wrongLevel(wrongAttempts);
+  const badgeCls = level === "red" ? "wb-badge--red" : level === "amber" ? "wb-badge--amber" : "";
+  const mine = displayUserAnswer(q, w.lastUserAnswer);
+  const right = displayAnswer(q);
+  const starred = isFavorite(q.id);
 
-function renderItem(q: Question, w: WrongbookEntry): string {
   return `<div class="wb-item" data-id="${esc(q.id)}">
     <div class="wb-item__top">
       <div class="wb-item__tags">
+        ${batchMode ? `<button class="wb-check${checked.has(q.id) ? " is-on" : ""}" data-act="check" aria-label="选择">✓</button>` : ""}
         ${typeTag(q.type)}${questionDomainTag(q)}${bankTag(q)}
-        <span class="tag tag--general">错 ${w.wrongCount ?? 1} 次</span>
       </div>
-      <div class="wb-item__time">${w.lastWrongAt ? esc(fmtTime(w.lastWrongAt)) : ""}</div>
+      <span class="wb-badge ${badgeCls}">◷ 错 ${wrongAttempts} 次</span>
     </div>
     <div class="wb-item__stem">${esc(q.stem)}</div>
-    <div class="wb-item__ans">
-      正确答案：<b>${shortAnswer(q)}</b>
+    <div class="wb-item__answers">
+      <div class="wb-item__line wb-item__line--mine">我的答案：<b>${esc(clip(mine))}</b></div>
+      <div class="wb-item__line wb-item__line--right">正确答案：<b>${esc(clip(right))}</b></div>
     </div>
-    <div class="wb-item__actions">
-      <button class="btn btn--sm btn--ghost" data-act="redo" style="padding:0 8px">重做这题</button>
-      <button class="btn btn--sm btn--danger" data-act="remove" style="padding:0 8px">移出错题本</button>
+    ${q.analysis ? `<div class="wb-item__analysis"><b>错因解析</b>${esc(clip(q.analysis, 320))}</div>` : ""}
+    <div class="wb-item__foot">
+      <span>上次错误 ${w.lastWrongAt ? esc(fmtTime(w.lastWrongAt)) : "—"}</span>
+      <span class="wb-item__act">
+        <button class="btn btn--sm btn--ghost" data-act="redo" style="padding:0 8px">↻ 重做本题</button>
+        <button class="btn btn--sm btn--ghost" data-act="fav" style="padding:0 8px">${starred ? "★ 已收藏" : "☆ 收藏"}</button>
+        <button class="btn btn--sm btn--danger" data-act="remove" style="padding:0 8px">移出</button>
+      </span>
     </div>
   </div>`;
 }
 
-function render(root: HTMLElement): void {
-  const store = getStore();
-  const wrongIds = new Set(Object.keys(store.wrongbook));
-  const questions = getQuestions();
-  const allWrongQuestions = questions.filter((q) => wrongIds.has(q.id));
+/* ---------------- 视图 ---------------- */
 
-  if (!allWrongQuestions.length) {
-    root.innerHTML = emptyState({
-      icon: "✅",
-      title: "错题本是空的",
-      desc: wrongIds.size
-        ? "错题本中的记录已不在当前题库内。"
-        : "刷题时答错的题目会自动收进这里，错题重刷答对一次后自动移出。",
-      action: `<button class="btn btn--primary" id="wPractice">去刷题</button>`,
-    });
-    root.querySelector("#wPractice")?.addEventListener("click", () => navigate("practice"));
-    return;
-  }
+const view: View = {
+  async render(root) {
+    let items = collect();
+    const stats = wrongbookStats(getLoadedQuestions(), getStore());
 
-  // 根据当前已收录错题收集可用的题库与领域
-  const availableBanks = new Set<string>();
-  const availableDomains = new Set<string>();
-  for (const q of allWrongQuestions) {
-    availableBanks.add(q.id.split("-")[0]);
-    availableDomains.add(q.domain);
-  }
-
-  // 校验当前选中的筛选项
-  if (selectedBankFilter !== "all" && !availableBanks.has(selectedBankFilter)) {
-    selectedBankFilter = "all";
-  }
-  if (selectedDomainFilter !== "all" && !availableDomains.has(selectedDomainFilter)) {
-    selectedDomainFilter = "all";
-  }
-
-  // 按选择过滤
-  let filteredItems = allWrongQuestions;
-  if (selectedBankFilter !== "all") {
-    filteredItems = filteredItems.filter((q) => q.id.startsWith(selectedBankFilter + "-"));
-  }
-  if (selectedDomainFilter !== "all") {
-    filteredItems = filteredItems.filter((q) => q.domain === selectedDomainFilter);
-  }
-
-  // 默认策略：题目总数 <= 20 全展开，> 20 则按需折叠
-  const shouldOpenAll = filteredItems.length <= 20;
-
-  // 题库与领域选项
-  const banksList = getBanks().filter((b) => availableBanks.has(b.id));
-
-  // 获取领域中文名映射
-  const domainLabelMap: Record<string, string> = {};
-  for (const b of getBanks()) {
-    Object.assign(domainLabelMap, b.domainLabels);
-  }
-
-  // 构造分组数据：Bank -> Domain -> items
-  const bankGroupsMap = new Map<string, Map<string, Array<{ q: Question; w: WrongbookEntry }>>>();
-  for (const q of filteredItems) {
-    const bId = q.id.split("-")[0];
-    const w = store.wrongbook[q.id] ?? { wrongCount: 1, addedAt: 0, lastWrongAt: 0 };
-    if (!bankGroupsMap.has(bId)) bankGroupsMap.set(bId, new Map());
-    const dMap = bankGroupsMap.get(bId)!;
-    if (!dMap.has(q.domain)) dMap.set(q.domain, []);
-    dMap.get(q.domain)!.push({ q, w });
-  }
-
-  const bankGroups: BankGroup[] = [];
-  for (const [bId, dMap] of bankGroupsMap) {
-    const bank = getBank(bId);
-    const domains: DomainGroup[] = [];
-    let bTotal = 0;
-    for (const [dom, items] of dMap) {
-      domains.push({
-        domain: dom,
-        domainLabel: bank?.domainLabels[dom] ?? domainLabelMap[dom] ?? dom,
-        items,
-      });
-      bTotal += items.length;
-    }
-    bankGroups.push({
-      bankId: bId,
-      bankTitle: bank?.title ?? bId,
-      domains,
-      totalCount: bTotal,
-    });
-  }
-
-  // 按领域平铺（当 groupMode 为 "domain"）
-  const domainGroupsMap = new Map<string, Array<{ q: Question; w: WrongbookEntry }>>();
-  if (groupMode === "domain") {
-    for (const q of filteredItems) {
-      const w = store.wrongbook[q.id] ?? { wrongCount: 1, addedAt: 0, lastWrongAt: 0 };
-      if (!domainGroupsMap.has(q.domain)) domainGroupsMap.set(q.domain, []);
-      domainGroupsMap.get(q.domain)!.push({ q, w });
-    }
-  }
-
-  root.innerHTML = `
-    <section class="card">
-      <h2 class="card__title">
-        错题本
-        <small>共 ${allWrongQuestions.length} 题 · 当前筛选 ${filteredItems.length} 题</small>
-      </h2>
-      <div class="about">
-        <p>答错自动收录，<b>错题重刷答对一次即自动移出</b>；支持按题库与领域两级归类查看。</p>
+    root.innerHTML = `
+      <div class="page-head">
+        <h1 class="page-head__title">错题本</h1>
+        <button class="btn btn--sm ${batchMode ? "btn--primary" : ""}" id="wbManage">${batchMode ? "完成" : "管理"}</button>
       </div>
-
-      <!-- 筛选与分组控制 -->
-      <div class="wb-controls">
-        <div class="wb-filter-row">
-          <span class="wb-filter-label">分组查看</span>
-          <select class="wb-select" id="groupSelect">
-            <option value="bank-domain" ${groupMode === "bank-domain" ? "selected" : ""}>题库 → 领域 (两级嵌套)</option>
-            <option value="domain" ${groupMode === "domain" ? "selected" : ""}>按领域分组</option>
-            <option value="flat" ${groupMode === "flat" ? "selected" : ""}>不分组平铺</option>
-          </select>
+      ${items.length ? `
+        <div class="wb-kpi">
+          <div class="wb-kpi__cell wb-kpi__cell--bad"><b>${stats.total}</b><span>错题总数</span></div>
+          <div class="wb-kpi__cell wb-kpi__cell--ok"><b>${stats.corrected}</b><span>已订正</span></div>
+          <div class="wb-kpi__cell"><b>${stats.pending}</b><span>待复习</span></div>
         </div>
-
-        <div class="wb-filter-row">
-          <span class="wb-filter-label">筛选范围</span>
-          <select class="wb-select" id="bankFilter">
-            <option value="all" ${selectedBankFilter === "all" ? "selected" : ""}>全部题库 (${allWrongQuestions.length})</option>
-            ${banksList.map((b) => {
-              const count = allWrongQuestions.filter((q) => q.id.startsWith(b.id + "-")).length;
-              return `<option value="${esc(b.id)}" ${selectedBankFilter === b.id ? "selected" : ""}>${esc(b.title)} (${count})</option>`;
-            }).join("")}
-          </select>
-          <select class="wb-select" id="domainFilter">
-            <option value="all" ${selectedDomainFilter === "all" ? "selected" : ""}>全部领域</option>
-            ${[...availableDomains].map((d) => {
-              const label = domainLabelMap[d] ?? d;
-              const count = allWrongQuestions.filter((q) => q.domain === d).length;
-              return `<option value="${esc(d)}" ${selectedDomainFilter === d ? "selected" : ""}>${esc(label)} (${count})</option>`;
-            }).join("")}
-          </select>
-        </div>
-      </div>
-
-      <!-- 错题重刷入口联动按钮群 -->
-      <div class="wb-redo-buttons">
-        <button class="btn btn--primary" id="wRedoAll">全量重刷 (${allWrongQuestions.length})</button>
-        ${selectedBankFilter !== "all" ? `
-          <button class="btn btn--primary" id="wRedoBank">重刷当前题库 (${filteredItems.length})</button>
-        ` : ""}
-        ${selectedDomainFilter !== "all" ? `
-          <button class="btn btn--primary" id="wRedoDomain">重刷当前领域 (${filteredItems.length})</button>
-        ` : ""}
-      </div>
-    </section>
-
-    <!-- 错题内容展示区 -->
-    <div id="wrongListContainer">
-      ${filteredItems.length === 0 ? `
-        <div class="empty">
-          <div class="empty__icon">🔍</div>
-          <h3>该筛选条件下无错题</h3>
-          <p>尝试切换筛选选项或选择全部题库/领域。</p>
-        </div>
-      ` : groupMode === "bank-domain" ? `
-        <!-- 两级嵌套折叠：题库 -> 领域 -->
-        ${bankGroups.map((bg, bIdx) => `
-          <details class="wb-group" ${shouldOpenAll || bIdx === 0 ? "open" : ""}>
-            <summary class="wb-group__head">
-              <span><b>${esc(bg.bankTitle)}</b> <small style="color:var(--text-3);font-weight:normal">(${bg.totalCount} 题)</small></span>
-              <span class="wb-group__arrow">▶</span>
-            </summary>
-            ${bg.domains.map((dg) => `
-              <details class="wb-subgroup" ${shouldOpenAll ? "open" : ""}>
-                <summary class="wb-subgroup__head">
-                  <span>${esc(dg.domainLabel)} <small style="color:var(--text-3);font-weight:normal">(${dg.items.length} 题)</small></span>
-                  <span class="wb-group__arrow">▶</span>
-                </summary>
-                <div class="wb-items">
-                  ${dg.items.map((it) => renderItem(it.q, it.w)).join("")}
-                </div>
-              </details>
-            `).join("")}
-          </details>
-        `).join("")}
-      ` : groupMode === "domain" ? `
-        <!-- 单级折叠：按领域 -->
-        ${[...domainGroupsMap.entries()].map(([dom, items], dIdx) => {
-          const domLabel = domainLabelMap[dom] ?? dom;
-          return `
-            <details class="wb-group" ${shouldOpenAll || dIdx === 0 ? "open" : ""}>
-              <summary class="wb-group__head">
-                <span><b>${esc(domLabel)}</b> <small style="color:var(--text-3);font-weight:normal">(${items.length} 题)</small></span>
-                <span class="wb-group__arrow">▶</span>
-              </summary>
-              <div class="wb-items">
-                ${items.map((it) => renderItem(it.q, it.w)).join("")}
-              </div>
-            </details>
-          `;
-        }).join("")}
-      ` : `
-        <!-- 平铺列表 -->
-        <section class="card" style="padding:10px 14px">
-          <div class="wb-items">
-            ${filteredItems.map((q) => {
-              const w = store.wrongbook[q.id] ?? { wrongCount: 1, addedAt: 0, lastWrongAt: 0 };
-              return renderItem(q, w);
+        <section class="card">
+          <div class="chips" id="wbTypeChips">
+            ${TYPE_FILTERS.map((t) => {
+              const n = t.key === "all" ? items.length : items.filter((it) => it.q.type === t.key).length;
+              return `<button class="chip${activeType === t.key ? " is-on" : ""}" data-type="${esc(t.key)}">
+                ${esc(t.label)}<span class="chip__n">${n}</span></button>`;
             }).join("")}
           </div>
+          <p class="about" style="margin:12px 0 0">
+            答错自动收录，<b>错题重刷答对一次即自动移出</b>；
+            ${stats.total ? `历史共错过 ${stats.total} 题，已订正 ${stats.corrected} 题（${pct(stats.corrected, stats.total)}%）。` : ""}
+          </p>
         </section>
-      `}
-    </div>
+      ` : ""}
+      <div id="wbList"></div>
+      <div id="wbCta"></div>
+    `;
 
-    <div class="actions" style="margin-top:16px">
-      <button class="btn btn--block" id="wHome">返回首页</button>
-    </div>
-  `;
+    const listBox = root.querySelector<HTMLElement>("#wbList")!;
+    const ctaBox = root.querySelector<HTMLElement>("#wbCta")!;
 
-  // 绑定重刷入口
-  root.querySelector("#wRedoAll")?.addEventListener("click", () => {
-    navigate("practice", { mode: "wrong" });
-  });
+    if (!items.length) {
+      root.querySelector("#wbManage")?.remove();
+      listBox.innerHTML = emptyState({
+        icon: "✅",
+        title: "错题本是空的",
+        desc: "刷题时答错的题目会自动收进这里，重刷答对一次后自动移出。",
+        action: `<button class="btn btn--primary" id="wPractice">去刷题</button>`,
+      });
+      listBox.querySelector("#wPractice")?.addEventListener("click", () => navigate("practice", { fresh: "1" }));
+      return;
+    }
 
-  root.querySelector("#wRedoBank")?.addEventListener("click", () => {
-    navigate("practice", { mode: "wrong", bank: selectedBankFilter });
-  });
+    const paint = (): void => {
+      const filtered = activeType === "all" ? items : items.filter((it) => it.q.type === activeType);
+      listBox.innerHTML = filtered.length
+        ? `<section class="card" style="padding:12px 16px">${filtered.map(renderItem).join("")}</section>`
+        : emptyState({ icon: "🔍", title: "该题型下暂无错题", desc: "换个题型，或选择「全部题型」。" });
 
-  root.querySelector("#wRedoDomain")?.addEventListener("click", () => {
-    navigate("practice", { mode: "wrong", domain: selectedDomainFilter });
-  });
+      ctaBox.innerHTML = batchMode
+        ? `<div class="sticky-cta">
+             <button class="btn btn--danger" id="wbBatchRemove" ${checked.size ? "" : "disabled"}>
+               批量移出错题本 (${checked.size})
+             </button>
+           </div>`
+        : `<div class="sticky-cta">
+             <button class="btn btn--primary" id="wbRedoAll">
+               ↻ 一键重做当前错题（${filtered.length} 道）
+             </button>
+           </div>`;
 
-  root.querySelector("#wHome")?.addEventListener("click", () => navigate("home"));
+      listBox.querySelectorAll<HTMLElement>(".wb-item").forEach((node) => {
+        const id = node.dataset.id!;
+        node.querySelector('[data-act="check"]')?.addEventListener("click", () => {
+          if (checked.has(id)) checked.delete(id); else checked.add(id);
+          paint();
+        });
+        node.querySelector('[data-act="redo"]')?.addEventListener("click", () => {
+          navigate("practice", { mode: "wrong", qid: id });
+        });
+        node.querySelector('[data-act="fav"]')?.addEventListener("click", () => {
+          const on = toggleFavorite(id);
+          toast(on ? "已加入收藏" : "已取消收藏", "ok");
+          paint();
+        });
+        node.querySelector('[data-act="remove"]')?.addEventListener("click", () => {
+          removeFromWrongbook(id);
+          checked.delete(id);
+          toast("已移出错题本", "ok");
+          void view.render(root);
+        });
+      });
 
-  // 筛选器与分组下拉切换
-  root.querySelector("#groupSelect")?.addEventListener("change", (e) => {
-    groupMode = (e.target as HTMLSelectElement).value;
-    render(root);
-  });
+      ctaBox.querySelector("#wbRedoAll")?.addEventListener("click", () => {
+        const typeParam = activeType === "all" ? undefined : activeType;
+        navigate("practice", typeParam ? { mode: "wrong", type: typeParam } : { mode: "wrong" });
+      });
+      ctaBox.querySelector("#wbBatchRemove")?.addEventListener("click", () => {
+        if (!checked.size) return;
+        if (!window.confirm(`确定把选中的 ${checked.size} 道题移出错题本吗？`)) return;
+        for (const id of checked) removeFromWrongbook(id);
+        const n = checked.size;
+        checked.clear();
+        toast(`已移出 ${n} 道题`, "ok");
+        void view.render(root);
+      });
+    };
 
-  root.querySelector("#bankFilter")?.addEventListener("change", (e) => {
-    selectedBankFilter = (e.target as HTMLSelectElement).value;
-    render(root);
-  });
+    paint();
 
-  root.querySelector("#domainFilter")?.addEventListener("change", (e) => {
-    selectedDomainFilter = (e.target as HTMLSelectElement).value;
-    render(root);
-  });
-
-  // 单题重做与移除
-  root.querySelectorAll<HTMLElement>(".wb-item").forEach((node) => {
-    const id = node.dataset.id!;
-    node.querySelector('[data-act="redo"]')?.addEventListener("click", () => {
-      navigate("practice", { mode: "wrong", qid: id });
+    root.querySelector("#wbTypeChips")?.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".chip");
+      if (!btn?.dataset.type) return;
+      activeType = btn.dataset.type;
+      root.querySelectorAll<HTMLButtonElement>("#wbTypeChips .chip").forEach((b) => {
+        b.classList.toggle("is-on", b.dataset.type === activeType);
+      });
+      paint();
     });
-    node.querySelector('[data-act="remove"]')?.addEventListener("click", () => {
-      removeFromWrongbook(id);
-      toast("已移出错题本", "ok");
-      render(root);
-    });
-  });
-}
 
-const view: View = { render };
+    root.querySelector("#wbManage")?.addEventListener("click", () => {
+      batchMode = !batchMode;
+      checked.clear();
+      void view.render(root);
+    });
+  },
+};
+
 export default view;

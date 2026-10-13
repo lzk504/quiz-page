@@ -8,6 +8,8 @@ import {
 import { getCurrentUser, logout, apiFetch } from "../auth";
 import { stopSync } from "../sync";
 import { computeStats } from "../stats";
+import { getExamDate, setExamDate } from "../local-prefs";
+import { todayAnswered, DAILY_GOAL, daysUntil } from "../goal";
 import { esc, fmtDate, fmtTime, download } from "../utils";
 import { toast } from "../ui";
 import { navigate } from "../router";
@@ -42,6 +44,34 @@ const view: View = {
     const isAdmin = user?.role === "admin";
 
     root.innerHTML = `
+      <div class="page-head">
+        <button class="page-head__back" id="setBack" title="返回">‹</button>
+        <h1 class="page-head__title">学习设置</h1>
+      </div>
+
+      <section class="card">
+        <h2 class="card__title">备考设置 <small>仅保存在本机</small></h2>
+        <div class="scope-row">
+          <span class="scope-row__text">
+            <b>考试日期</b>
+            <span>${(() => {
+              const d = getExamDate();
+              if (!d) return "设置后首页会显示开考倒计时";
+              const left = daysUntil(d);
+              return left === null ? "已设置" : left >= 0 ? `距开考还有 ${left} 天` : "考试日期已过";
+            })()}</span>
+          </span>
+          <input class="field__input" id="setExamDate" type="date" style="width:auto;flex:none"
+            value="${esc(getExamDate() ?? "")}">
+        </div>
+        <div class="scope-row">
+          <span class="scope-row__text">
+            <b>今日目标</b>
+            <span>每天 ${DAILY_GOAL} 题，今日已刷 ${todayAnswered(store)} 题</span>
+          </span>
+        </div>
+      </section>
+
       <section class="card">
         <h2 class="card__title">账号</h2>
         <div class="about">
@@ -68,7 +98,7 @@ const view: View = {
         <div class="setting-row">
           <div class="setting-row__text">
             <b>导入备份</b>
-            <span>从之前导出的 JSON 文件恢复（兼容 v1/v2 旧备份，会自动迁移）。导入前会自动校验格式，失败不会改动现有数据。</span>
+            <span>从之前导出的 JSON 文件恢复（兼容 v1/v2/v3 旧备份，会自动迁移到 v${SCHEMA_VERSION}）。导入前会自动校验格式，失败不会改动现有数据。</span>
           </div>
           <button class="btn btn--sm" id="btnImport">导入</button>
           <input type="file" id="fileInput" accept="application/json,.json" hidden>
@@ -117,13 +147,23 @@ const view: View = {
       <section class="card">
         <h2 class="card__title">关于</h2>
         <div class="about">
-          <p><b>${esc(meta?.title ?? "学前教育刷题手册")}</b></p>
+          <p><b>考点精编 · 学前教育备考</b></p>
           <p>共 ${banks.length} 个题库（已加载 ${questions.length} 题）：${banks.map((b) => esc(b.title)).join("　")}</p>
+          <p>四个标签页：首页（今日目标 / 考试模式 / 今日推荐复习）、题库（章节目录与题型专项）、错题本、我的（统计报告与设置）。</p>
           <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + D1；题库以 JSON 存放于 <code>data/banks.json</code> 与 <code>data/bank-*.json</code>。</p>
-          <p>数据版本 v${SCHEMA_VERSION}　·　共 ${banks.length} 库 / 每库 1000 题</p>
+          <p>数据版本 v${SCHEMA_VERSION}（含收藏）　·　共 ${banks.length} 库 / 每库 1000 题</p>
         </div>
       </section>
     `;
+
+    /* ---------- 备考设置 ---------- */
+    root.querySelector("#setBack")?.addEventListener("click", () => navigate("me"));
+    root.querySelector<HTMLInputElement>("#setExamDate")?.addEventListener("change", (e) => {
+      const v = (e.target as HTMLInputElement).value || null;
+      setExamDate(v);
+      toast(v ? `考试日期已设为 ${v}` : "已清除考试日期", "ok");
+      void view.render(root);
+    });
 
     /* ---------- 账号 ---------- */
     root.querySelector("#btnLogout")?.addEventListener("click", () => {
@@ -162,7 +202,7 @@ const view: View = {
       const sum = check.summary!;
       const mode = window.confirm(
         `备份校验通过。\n\n` +
-        `包含：答题记录 ${sum.records} 条 / 错题 ${sum.wrongbook} 条\n\n` +
+        `包含：答题记录 ${sum.records} 条 / 错题 ${sum.wrongbook} 条 / 收藏 ${sum.favorites} 条\n\n` +
         `点「确定」= 覆盖当前数据\n点「取消」= 与当前数据合并（同一题保留时间较新的记录）`
       );
       applyImport(check.store, mode ? "replace" : "merge");

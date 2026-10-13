@@ -1,17 +1,49 @@
-/** 刷题页：随机抽题 · 即时判定（填空/简答为用户自判） · 解析展示 */
+/**
+ * 刷题页（v6 大改）：练习模式（即时判定）· 错题重刷 · 今日目标 · 单题练习 · 考试模式
+ *
+ * 模式（params.mode）：
+ *   （无）  练习模式：随机 ≤100 题、即时判定、填空/简答对照后自评
+ *   wrong  错题重刷：错题池全量入队（不截断）
+ *   daily  今日目标：抽未做过的题，上限 = 100 − 今日已刷
+ *   fav    单题练习（qid）
+ *   exam   考试模式：60 分钟 · 零反馈 · 交卷后统一自评 · 出分
+ *
+ * 考试语义（与练习模式的差别，勿混用状态）：
+ *   - 作答过程中不判分、不落库、不显示答案；
+ *   - 交卷时才批量判分：客观题直接落库，填空/简答进入统一自评阶段逐题判定；
+ *   - 交卷后不可返回作答（退出即作废）。
+ */
 
-import { getQuestions, getSelectedBanks, questionDomainLabel, typeLabels } from "../state";
-import { getStore, recordAnswer } from "../storage";
+import { getQuestions, getLoadedQuestions, getQuestion, getSelectedBanks,
+  questionDomainLabel, typeLabels } from "../state";
+import { getStore, recordAnswer, toggleFavorite, isFavorite } from "../storage";
 import { grade, displayAnswer, displayUserAnswer, isSelfJudged, type GradeResult } from "../scoring";
+import {
+  shuffle, examPick, examBlueprint, examTypeScores, DAILY_GOAL, todayAnswered, EXAM_MINUTES,
+  type ExamResultRow,
+} from "../goal";
+import { setLastScope } from "../local-prefs";
 import { esc } from "../utils";
 import { navigate } from "../router";
-import { domainTag, typeTag, bankTag, emptyState } from "../ui";
+import { domainTag, typeTag, bankTag, emptyState, toast } from "../ui";
 import type { Question, View } from "../types";
 
-/** 单次练习的抽题上限（错题重刷不受限） */
+/** 单次练习的抽题上限（考试 = 100 题蓝图；错题重刷不受限） */
 export const MAX_PER_SESSION = 100;
 
+export { shuffle };
+
 /* ---------------- 会话状态（刷新即重置） ---------------- */
+
+interface ExamState {
+  phase: "answer" | "judging" | "result";
+  endsAt: number;
+  startedAt: number;
+  /** qid → 用户作答（作答阶段实时写，切题前收集） */
+  answers: Map<string, unknown>;
+  rows: ExamResultRow[];
+  judgeIndex: number;
+}
 
 interface Session {
   queue: Question[];
@@ -25,64 +57,119 @@ interface Session {
   result: GradeResult | null;
   userAnswer: unknown;
   stats: { answered: number; correct: number; wrongAdded: number; wrongCleared: number };
+  exam: ExamState | null;
+  /** 今日目标模式的说明（目标已达成等） */
+  emptyHint?: string;
 }
 
 let S: Session | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
 
-/** Fisher–Yates 洗牌（返回新数组，不改原数组） */
-export function shuffle<T>(input: T[]): T[] {
-  const arr = [...input];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
+/* ---------------- 题池 ---------------- */
+
+/** 按 params.banks 限定的题池（缺省 = 当前刷题范围） */
+function poolByBanks(banksParam?: string): Question[] {
+  if (!banksParam) return getQuestions();
+  const ids = banksParam.split(",").filter(Boolean);
+  if (!ids.length) return getQuestions();
+  const pool = getLoadedQuestions().filter((q) => ids.includes(q.id.split("-")[0]));
+  return pool.length ? pool : getQuestions();
 }
 
-/** 可抽题池（按 params 过滤，未经随机与截断） */
+const isBlank = (q: Question, ua: unknown): boolean => {
+  if (q.type === "multiple") return !(Array.isArray(ua) && ua.length);
+  if (q.type === "fill") return !(Array.isArray(ua) && ua.some((v) => String(v ?? "").trim()));
+  if (q.type === "short") return !String(ua ?? "").trim();
+  return ua === undefined || ua === null || ua === "";
+};
+
+/** 未作答的题排在前面（「继续上次练习」用，保持组内随机） */
+function unansweredFirst(pool: Question[]): Question[] {
+  const records = getStore().records ?? {};
+  const fresh: Question[] = [];
+  const done: Question[] = [];
+  for (const q of pool) (records[q.id] ? done : fresh).push(q);
+  return [...shuffle(fresh), ...shuffle(done)];
+}
+
 function buildPool(params: Record<string, string>): Question[] {
-  const all = getQuestions();
-  if (params.mode === "wrong") {
+  const mode = params.mode ?? "";
+
+  if (mode === "fav") {
+    const q = params.qid ? getQuestion(params.qid) : undefined;
+    return q ? [q] : [];
+  }
+
+  if (mode === "wrong") {
     const wrongIds = new Set(Object.keys(getStore().wrongbook));
-    let pool = all.filter((q) => wrongIds.has(q.id));
-    if (params.qid) {
-      return pool.filter((q) => q.id === params.qid);
-    }
-    if (params.bank) {
-      pool = pool.filter((q) => q.id.startsWith(params.bank + "-"));
+    let pool = getLoadedQuestions().filter((q) => wrongIds.has(q.id));
+    if (params.qid) return pool.filter((q) => q.id === params.qid);
+    if (params.banks) {
+      const ids = params.banks.split(",").filter(Boolean);
+      pool = pool.filter((q) => ids.includes(q.id.split("-")[0]));
     }
     if (params.domain) {
       const domains = params.domain.split(",").filter(Boolean);
       if (domains.length) pool = pool.filter((q) => domains.includes(q.domain));
     }
+    if (params.type) {
+      const types = params.type.split(",").filter(Boolean);
+      if (types.length) pool = pool.filter((q) => types.includes(q.type));
+    }
     return pool;
   }
+
+  if (mode === "exam") {
+    // 题池 = 刷题范围；从题库 tab 进入时用当前浏览的那个库
+    return poolByBanks(params.banks);
+  }
+
+  if (mode === "daily") {
+    const remaining = Math.max(0, DAILY_GOAL - todayAnswered(getStore()));
+    const base = poolByBanks(params.banks);
+    const records = getStore().records ?? {};
+    const fresh = base.filter((q) => !records[q.id]);
+    const ordered = fresh.length ? fresh : base;
+    return shuffle(ordered).slice(0, remaining);
+  }
+
+  const pool = poolByBanks(params.banks);
   const domains = params.domain ? String(params.domain).split(",").filter(Boolean) : [];
   const types = params.type ? String(params.type).split(",").filter(Boolean) : [];
-  return all.filter((q) => {
+  const filtered = pool.filter((q) => {
     if (domains.length && !domains.includes(q.domain)) return false;
     if (types.length && !types.includes(q.type)) return false;
     return true;
   });
+  // 继续上次练习：优先出没做过的题
+  return params.fresh === "0" ? unansweredFirst(filtered) : shuffle(filtered);
 }
 
 function createSession(params: Record<string, string>): Session {
+  const mode = params.mode ?? "";
   const pool = buildPool(params);
   let title: string;
+  let emptyHint: string | undefined;
 
-  if (params.mode === "wrong") {
+  if (mode === "exam") {
+    title = "模拟考试 · 学前教育考点精编";
+  } else if (mode === "daily") {
+    const remaining = Math.max(0, DAILY_GOAL - todayAnswered(getStore()));
+    title = `今日目标 · 还剩 ${remaining} 题`;
+    if (remaining <= 0) emptyHint = "今日的 100 题目标已经完成，太棒了！";
+    else if (!pool.length) emptyHint = "当前范围内没有可以抽的新题，去题库换个章节吧。";
+  } else if (mode === "fav") {
+    const q = pool[0];
+    title = q ? `收藏练习 · ${questionDomainLabel(q)}` : "收藏练习";
+    if (!q) emptyHint = "这道题已不在当前题库中。";
+  } else if (mode === "wrong") {
     if (params.qid && pool[0]) {
       title = `错题单练 · ${questionDomainLabel(pool[0])}`;
-    } else if (params.bank && params.domain) {
-      const sample = pool.find((q) => q.domain === params.domain);
-      const dName = sample ? questionDomainLabel(sample) : params.domain;
-      title = `错题重刷 · ${dName}`;
-    } else if (params.bank) {
-      title = `错题重刷 · 题库专属`;
     } else if (params.domain) {
-      const sample = pool.find((q) => q.domain === params.domain);
-      const dName = sample ? questionDomainLabel(sample) : params.domain;
-      title = `错题重刷 · ${dName}`;
+      const sample = pool[0];
+      title = `错题重刷 · ${sample ? questionDomainLabel(sample) : params.domain}`;
+    } else if (params.banks) {
+      title = "错题重刷 · 题库专属";
     } else {
       title = "错题重刷 · 全量";
     }
@@ -95,12 +182,16 @@ function createSession(params: Record<string, string>): Session {
     });
     const tNames = types.map((t) => typeLabels()[t] ?? t);
     title = [...tNames, ...dNames].join(" · ") || "全部题目";
-    if (getSelectedBanks().length > 1) title = `合并刷题 · ${title}`;
+    if (params.banks && params.banks.split(",").filter(Boolean).length > 1) title = `合并刷题 · ${title}`;
+    else if (!params.banks && getSelectedBanks().length > 1) title = `合并刷题 · ${title}`;
   }
 
-  // 每次开始都重新随机打乱；普通练习截断到 100 题，错题重刷全部入队
-  const shuffled = shuffle(pool);
-  const queue = params.mode === "wrong" ? shuffled : shuffled.slice(0, MAX_PER_SESSION);
+  // 队列：考试按蓝图抽题；错题重刷全量重排；单题/今日目标用已排序的池；普通练习截断到 100
+  let queue: Question[];
+  if (mode === "exam") queue = examPick(pool, examBlueprint());
+  else if (mode === "wrong") queue = shuffle(pool);
+  else if (mode === "fav" || mode === "daily") queue = pool;
+  else queue = pool.slice(0, MAX_PER_SESSION);
 
   return {
     queue,
@@ -112,12 +203,25 @@ function createSession(params: Record<string, string>): Session {
     result: null,
     userAnswer: null,
     stats: { answered: 0, correct: 0, wrongAdded: 0, wrongCleared: 0 },
+    exam: mode === "exam"
+      ? {
+          phase: "answer",
+          endsAt: Date.now() + EXAM_MINUTES * 60 * 1000,
+          startedAt: Date.now(),
+          answers: new Map<string, unknown>(),
+          rows: [],
+          judgeIndex: 0,
+        }
+      : null,
+    emptyHint,
   };
 }
 
-/* ---------------- 渲染 ---------------- */
+/* ---------------- 公共渲染片段 ---------------- */
 
 const letterOf = (i: number): string => "ABCDE"[i];
+
+/* ---------------- 练习模式 ---------------- */
 
 function paint(root: HTMLElement): void {
   const s = S!;
@@ -125,11 +229,13 @@ function paint(root: HTMLElement): void {
 
   if (!queue.length) {
     root.innerHTML = emptyState({
-      icon: "🎉",
-      title: s.params.mode === "wrong" ? "错题本是空的" : "没有符合条件的题目",
-      desc: s.params.mode === "wrong"
-        ? "答错的题会自动出现在这里，先把题刷起来吧。"
-        : "试试放宽筛选条件，或者切换题库。",
+      icon: s.emptyHint ? "🎯" : "🎉",
+      title: s.emptyHint ?? (s.params.mode === "wrong" ? "错题本是空的" : "没有符合条件的题目"),
+      desc: s.emptyHint
+        ? "回到首页看看今日推荐复习，或去题库挑一个章节。"
+        : s.params.mode === "wrong"
+          ? "答错的题会自动出现在这里，先把题刷起来吧。"
+          : "试试放宽条件，或者切换题库。",
       action: `<button class="btn btn--primary" id="pExit">返回首页</button>`,
     });
     root.querySelector("#pExit")?.addEventListener("click", () => navigate("home"));
@@ -140,11 +246,13 @@ function paint(root: HTMLElement): void {
 
   const q = queue[index];
   const pctDone = Math.round((s.stats.answered / queue.length) * 100);
+  const starred = isFavorite(q.id);
 
   root.innerHTML = `
     <div class="practice-head">
       <span class="practice-head__idx"><b>${index + 1}</b> / ${queue.length}</span>
       <span class="practice-head__title">${esc(s.title)}</span>
+      <button class="star-btn${starred ? " is-on" : ""}" id="pStar" title="${starred ? "取消收藏" : "收藏本题"}">★</button>
       <button class="btn btn--sm btn--ghost" id="pExit">退出</button>
     </div>
     <div class="mini-bar"><i style="width:${pctDone}%"></i></div>
@@ -279,7 +387,6 @@ function renderActions(q: Question): string {
   const s = S!;
   const last = s.index === s.queue.length - 1;
 
-  // 自判题：已提交但未判定 → 显示自判按钮
   if (s.awaitingJudge) {
     return `<div class="self-judge">
       <button class="btn btn--ok btn--block" id="pJudgeOk">我答对了 ✓</button>
@@ -304,7 +411,6 @@ function renderFeedback(q: Question): string {
   const s = S!;
   if (!s.settled) return "";
 
-  // 自判题：先给参考答案与解析，等用户判定
   if (s.awaitingJudge) {
     return `<div class="feedback">
         <div class="answer-line">参考答案：<b class="answer-line__block">${esc(displayAnswer(q))}</b></div>
@@ -330,6 +436,7 @@ function renderSummary(root: HTMLElement): void {
   const { answered, correct, wrongAdded, wrongCleared } = s.stats;
   const rate = answered ? Math.round((correct / answered) * 100) : 0;
   const batchSize = s.queue.length;
+  const mode = s.params.mode ?? "";
 
   root.innerHTML = `
     <section class="card summary">
@@ -343,17 +450,16 @@ function renderSummary(root: HTMLElement): void {
       ${wrongAdded || wrongCleared ? `<p class="about" style="text-align:center">
         新增错题 <b>${wrongAdded}</b> 题${wrongCleared ? `　·　移出错题本 <b>${wrongCleared}</b> 题` : ""}
       </p>` : ""}
-      ${s.params.mode === "wrong" ? "" : `<p class="about" style="text-align:center">本批共 ${batchSize} 题（单次上限 ${MAX_PER_SESSION} 题）</p>`}
+      ${mode === "wrong" || mode === "fav" ? "" : `<p class="about" style="text-align:center">本批共 ${batchSize} 题</p>`}
     </section>
     <div class="actions" style="flex-direction:column">
-      <button class="btn btn--primary btn--block" id="pAgain">再刷一遍</button>
-      ${s.params.mode === "wrong" ? "" : `<button class="btn btn--block" id="pShuffle">换一批</button>`}
-      <button class="btn btn--block" id="pStats">查看统计</button>
+      ${mode === "fav" ? "" : `<button class="btn btn--primary btn--block" id="pAgain">再刷一遍</button>`}
+      ${mode === "wrong" || mode === "fav" ? "" : `<button class="btn btn--block" id="pShuffle">换一批</button>`}
+      <button class="btn btn--block" id="pStats">查看数据报告</button>
       <button class="btn btn--block" id="pHome">返回首页</button>
     </div>
   `;
 
-  // 再刷一遍：同一批题、重新打乱顺序
   root.querySelector("#pAgain")?.addEventListener("click", () => {
     const s2 = S!;
     s2.queue = shuffle(s2.queue);
@@ -366,7 +472,6 @@ function renderSummary(root: HTMLElement): void {
     paint(root);
   });
 
-  // 换一批：重新过滤题池 + 重新随机抽题
   root.querySelector("#pShuffle")?.addEventListener("click", () => {
     S = createSession(S!.params);
     paint(root);
@@ -376,7 +481,7 @@ function renderSummary(root: HTMLElement): void {
   root.querySelector("#pHome")?.addEventListener("click", () => navigate("home"));
 }
 
-/* ---------------- 交互 ---------------- */
+/* ---------------- 练习交互 ---------------- */
 
 function repaintQuestion(root: HTMLElement, q: Question): void {
   const body = root.querySelector("#qBody");
@@ -388,7 +493,6 @@ function repaintQuestion(root: HTMLElement, q: Question): void {
   bind(root, q);
 }
 
-/** 从 DOM 收集当前作答（填空/简答需要读输入框） */
 function collectAnswer(root: HTMLElement, q: Question): unknown {
   if (q.type === "fill") {
     const inputs = root.querySelectorAll<HTMLInputElement>(".blank-input");
@@ -401,7 +505,6 @@ function collectAnswer(root: HTMLElement, q: Question): unknown {
   return S!.userAnswer;
 }
 
-/** 提交（客观题判分；自判题展示参考答案等待用户判定） */
 function submit(root: HTMLElement, q: Question): void {
   const s = S!;
   if (s.settled) return;
@@ -411,7 +514,6 @@ function submit(root: HTMLElement, q: Question): void {
   s.userAnswer = userAnswer;
 
   if (isSelfJudged(q)) {
-    // 自判：先对照答案，不写记录
     s.settled = true;
     s.awaitingJudge = true;
     repaintQuestion(root, q);
@@ -424,7 +526,6 @@ function submit(root: HTMLElement, q: Question): void {
   repaintQuestion(root, q);
 }
 
-/** 自判：用户点击「我答对了 / 我答错了」后落库 */
 function judgeSelf(root: HTMLElement, q: Question, saysCorrect: boolean): void {
   const s = S!;
   if (!s.awaitingJudge) return;
@@ -434,7 +535,6 @@ function judgeSelf(root: HTMLElement, q: Question, saysCorrect: boolean): void {
   repaintQuestion(root, q);
 }
 
-/** 写入存储并累计本次统计 */
 function finalize(q: Question, isCorrect: boolean): void {
   const s = S!;
   const r = recordAnswer(q, s.userAnswer, isCorrect);
@@ -447,6 +547,12 @@ function finalize(q: Question, isCorrect: boolean): void {
 function bind(root: HTMLElement, q: Question): void {
   const s = S!;
   root.querySelector("#pExit")?.addEventListener("click", () => navigate("home"));
+
+  root.querySelector("#pStar")?.addEventListener("click", (e) => {
+    const on = toggleFavorite(q.id);
+    (e.currentTarget as HTMLElement).classList.toggle("is-on", on);
+    (e.currentTarget as HTMLElement).title = on ? "取消收藏" : "收藏本题";
+  });
 
   /* 选择题 */
   const optsBox = root.querySelector<HTMLElement>(".opts");
@@ -484,9 +590,8 @@ function bind(root: HTMLElement, q: Question): void {
     });
   });
 
-  /* 填空/简答：Ctrl+Enter 快捷提交 */
-  const textInput = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(".blank-input, .short-input");
-  if (textInput && !s.settled) {
+  /* 填空/简答：Enter 顺序跳空 / Ctrl+Enter 提交 */
+  if (!s.settled) {
     root.querySelectorAll<HTMLInputElement>(".blank-input").forEach((input) => {
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
@@ -512,7 +617,7 @@ function bind(root: HTMLElement, q: Question): void {
   root.querySelector("#pJudgeBad")?.addEventListener("click", () => judgeSelf(root, q, false));
 
   root.querySelector<HTMLButtonElement>("#pNext")?.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).disabled = true;   // 防抖：避免连点导致越界
+    (e.currentTarget as HTMLButtonElement).disabled = true;
     s.index++;
     s.settled = false;
     s.awaitingJudge = false;
@@ -522,25 +627,437 @@ function bind(root: HTMLElement, q: Question): void {
   });
 }
 
+/* ---------------- 考试模式 ---------------- */
+
+function fmtClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+function stopTimer(): void {
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+function startTimer(root: HTMLElement): void {
+  stopTimer();
+  const tick = (): void => {
+    const s = S;
+    if (!s?.exam || s.exam.phase !== "answer") { stopTimer(); return; }
+    const left = s.exam.endsAt - Date.now();
+    const node = root.querySelector<HTMLElement>("#examTimer");
+    if (node) {
+      node.textContent = `⏱ ${fmtClock(left)}`;
+      node.classList.toggle("is-warn", left < 5 * 60 * 1000);
+    }
+    if (left <= 0) submitExam(root, true);
+  };
+  tick();
+  timer = setInterval(tick, 1000);
+}
+
+/** 考试作答进度（已填内容的题数） */
+function examAnsweredCount(): number {
+  const exam = S!.exam!;
+  let n = 0;
+  for (const q of S!.queue) {
+    const ua = exam.answers.get(q.id);
+    if (!isBlank(q, ua)) n++;
+  }
+  return n;
+}
+
+function examBody(q: Question): string {
+  const exam = S!.exam!;
+  const ua = exam.answers.get(q.id);
+
+  switch (q.type) {
+    case "single":
+    case "multiple": {
+      const multi = q.type === "multiple";
+      const sel = multi ? new Set<string>((ua as string[]) ?? []) : (ua as string | null);
+      const opts = (q.options ?? []).map((text, i) => {
+        const L = letterOf(i);
+        const picked = multi ? (sel as Set<string>).has(L) : sel === L;
+        return `<button type="button" class="opt${picked ? " is-sel" : ""}" data-letter="${L}">
+          <span class="opt__key">${L}</span>
+          <span class="opt__text">${esc(text)}</span>
+        </button>`;
+      }).join("");
+      const hint = multi
+        ? `<p class="opt-hint" id="multiHint">${(sel as Set<string>).size ? `已选 ${[...(sel as Set<string>)].sort().join("")}` : "可多选，可随时修改"}</p>`
+        : "";
+      return `<p class="stem">${esc(q.stem)}</p><div class="opts" data-multi="${multi}">${opts}</div>${hint}`;
+    }
+    case "judge": {
+      const picked = ua === true ? true : ua === false ? false : null;
+      const btn = (v: boolean, emoji: string, label: string): string =>
+        `<button type="button" class="judge__btn${picked === v ? " is-sel" : ""}" data-judge="${v}"><em>${emoji}</em>${label}</button>`;
+      return `<p class="stem">${esc(q.stem)}</p><div class="judge">${btn(true, "√", "正确")}${btn(false, "×", "错误")}</div>`;
+    }
+    case "fill": {
+      const parts = String(q.stem).split(/_{4}/);
+      const blanks = Math.max(0, parts.length - 1);
+      const arr = Array.isArray(ua) ? (ua as string[]) : [];
+      let html = `<p class="stem stem--fill">`;
+      for (let i = 0; i < blanks; i++) {
+        html += esc(parts[i]);
+        html += `<input type="text" class="blank-input" data-blank="${i}" value="${esc(arr[i] ?? "")}"
+          autocomplete="off" spellcheck="false" aria-label="第 ${i + 1} 空">`;
+      }
+      html += esc(parts[blanks] ?? "") + `</p>`;
+      html += `<p class="opt-hint">共 ${blanks} 空，允许留空；交卷后统一对照参考答案。</p>`;
+      return html;
+    }
+    case "short": {
+      const text = typeof ua === "string" ? ua : "";
+      return `<p class="stem">${esc(q.stem)}</p>
+        <textarea class="short-input" id="shortInput" rows="5"
+          placeholder="写下你的答案（可留空）">${esc(text)}</textarea>
+        <p class="opt-hint">交卷后统一对照参考答案自评。</p>`;
+    }
+    default:
+      return `<p class="stem">${esc(q.stem)}</p>`;
+  }
+}
+
+/** 切题/交卷前把输入框内容收进 answers */
+function collectExamAnswer(root: HTMLElement): void {
+  const s = S!;
+  const exam = s.exam!;
+  const q = s.queue[s.index];
+  if (!q) return;
+  if (q.type === "fill") {
+    const inputs = root.querySelectorAll<HTMLInputElement>(".blank-input");
+    exam.answers.set(q.id, Array.from(inputs).map((i) => i.value.trim()));
+  } else if (q.type === "short") {
+    const ta = root.querySelector<HTMLTextAreaElement>("#shortInput");
+    exam.answers.set(q.id, (ta?.value ?? "").trim());
+  }
+}
+
+function renderExam(root: HTMLElement): void {
+  const s = S!;
+  const exam = s.exam!;
+
+  if (!s.queue.length) {
+    root.innerHTML = emptyState({
+      icon: "📝", title: "没有可抽的题目",
+      desc: "当前刷题范围内题目不足，去题库 tab 调整范围后再试。",
+      action: `<button class="btn btn--primary" id="examGoBanks">去题库</button>`,
+    });
+    root.querySelector("#examGoBanks")?.addEventListener("click", () => navigate("banks"));
+    return;
+  }
+
+  if (exam.phase === "judging") { renderExamJudge(root); return; }
+  if (exam.phase === "result") { renderExamResult(root); return; }
+
+  const q = s.queue[s.index];
+  const answered = examAnsweredCount();
+  const progress = Math.round((answered / s.queue.length) * 100);
+
+  root.innerHTML = `
+    <div class="exam-head">
+      <span class="exam-progress"><b>${s.index + 1}</b> / ${s.queue.length}　已答 ${answered}</span>
+      <span class="exam-timer" id="examTimer">⏱ ${fmtClock(exam.endsAt - Date.now())}</span>
+      <button class="btn btn--sm btn--ghost" id="examExit">退出</button>
+    </div>
+    <div class="mini-bar"><i style="width:${progress}%"></i></div>
+
+    <section class="card">
+      <div class="tags">${typeTag(q.type)}${domainTag(q.domain)}${bankTag(q)}</div>
+      <div id="qBody">${examBody(q)}</div>
+    </section>
+
+    <div class="actions" id="qActions">
+      <button class="btn" id="examPrev" ${s.index === 0 ? "disabled" : ""}>← 上一题</button>
+      ${s.index === s.queue.length - 1
+        ? `<button class="btn btn--primary" id="examSubmit">交卷</button>`
+        : `<button class="btn btn--primary" id="examNext">下一题 →</button>`}
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <button class="btn btn--block" id="examSubmit2">交卷（已答 ${answered} / ${s.queue.length}）</button>
+    </div>
+  `;
+
+  bindExamQuestion(root, q);
+  bindExamNav(root);
+}
+
+/** 题面绑定（选项 / 判断题）——只重绘 #qBody 后单独调用，避免重复绑定导航按钮 */
+function bindExamQuestion(root: HTMLElement, q: Question): void {
+  const s = S!;
+  const exam = s.exam!;
+
+  /** 重绘题面 + 同步进度显示 */
+  const refresh = (): void => {
+    const body = root.querySelector("#qBody");
+    if (body) body.innerHTML = examBody(q);
+    const answered = examAnsweredCount();
+    const prog = root.querySelector(".exam-progress");
+    if (prog) prog.innerHTML = `<b>${s.index + 1}</b> / ${s.queue.length}　已答 ${answered}`;
+    const sub2 = root.querySelector("#examSubmit2");
+    if (sub2) sub2.textContent = `交卷（已答 ${answered} / ${s.queue.length}）`;
+    const bar = root.querySelector(".mini-bar i") as HTMLElement | null;
+    if (bar) bar.style.width = `${Math.round((answered / s.queue.length) * 100)}%`;
+    bindExamQuestion(root, q);
+  };
+
+  const optsBox = root.querySelector<HTMLElement>(".opts");
+  if (optsBox) {
+    const multi = optsBox.dataset.multi === "true";
+    optsBox.querySelectorAll<HTMLButtonElement>(".opt").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const L = btn.dataset.letter!;
+        if (multi) {
+          const set = new Set<string>((exam.answers.get(q.id) as string[]) ?? []);
+          if (set.has(L)) set.delete(L); else set.add(L);
+          exam.answers.set(q.id, [...set].sort());
+        } else {
+          exam.answers.set(q.id, L);
+        }
+        refresh();
+      });
+    });
+  }
+
+  root.querySelectorAll<HTMLButtonElement>(".judge__btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      exam.answers.set(q.id, btn.dataset.judge === "true");
+      refresh();
+    });
+  });
+}
+
+/** 导航绑定（上一题 / 下一题 / 交卷 / 退出）——每屏只绑定一次 */
+function bindExamNav(root: HTMLElement): void {
+  const s = S!;
+
+  root.querySelector("#examPrev")?.addEventListener("click", () => {
+    collectExamAnswer(root);
+    s.index = Math.max(0, s.index - 1);
+    renderExam(root);
+  });
+
+  root.querySelector("#examNext")?.addEventListener("click", () => {
+    collectExamAnswer(root);
+    s.index = Math.min(s.queue.length - 1, s.index + 1);
+    renderExam(root);
+  });
+
+  const submitHandler = (): void => {
+    collectExamAnswer(root);
+    const blank = s.queue.length - examAnsweredCount();
+    const msg = blank > 0
+      ? `还有 ${blank} 道题未作答（未作答按错题计分）。确定交卷吗？`
+      : "确定交卷吗？交卷后本次考试不可再修改。";
+    if (!window.confirm(msg)) return;
+    submitExam(root, false);
+  };
+  root.querySelector("#examSubmit")?.addEventListener("click", submitHandler);
+  root.querySelector("#examSubmit2")?.addEventListener("click", submitHandler);
+
+  root.querySelector("#examExit")?.addEventListener("click", () => {
+    if (!window.confirm("退出后本次考试作废，确定退出？")) return;
+    stopTimer();
+    navigate("home");
+  });
+}
+
+/** 交卷：停表 → 客观题批量判分落库 → 自判题进入统一自评 */
+function submitExam(root: HTMLElement, auto: boolean): void {
+  const s = S;
+  if (!s?.exam || s.exam.phase !== "answer") return;
+  const exam = s.exam;
+
+  stopTimer();
+  collectExamAnswer(root);
+  exam.phase = "judging";
+  exam.judgeIndex = 0;
+  exam.rows = [];
+
+  for (const q of s.queue) {
+    const ua = exam.answers.get(q.id);
+    if (isSelfJudged(q)) {
+      exam.rows.push({ q, userAnswer: ua, correct: false });   // 待自评
+      continue;
+    }
+    const correct = !isBlank(q, ua) && !!grade(q, ua)?.correct;
+    if (!isBlank(q, ua)) recordAnswer(q, ua, correct);
+    exam.rows.push({ q, userAnswer: ua, correct });
+  }
+
+  if (auto) toast("考试时间已到，已自动交卷", "bad");
+
+  const pending = exam.rows.filter((r) => isSelfJudged(r.q));
+  if (pending.length) renderExamJudge(root);
+  else { exam.phase = "result"; renderExamResult(root); }
+}
+
+/** 自评阶段：逐题展示「你的作答 / 参考答案 / 解析」+ 我答对了 / 我答错了 */
+function renderExamJudge(root: HTMLElement): void {
+  const s = S!;
+  const exam = s.exam!;
+  const pending = exam.rows.filter((r) => isSelfJudged(r.q));
+
+  if (exam.judgeIndex >= pending.length) {
+    exam.phase = "result";
+    renderExamResult(root);
+    return;
+  }
+
+  const row = pending[exam.judgeIndex];
+  const q = row.q;
+  const mine = displayUserAnswer(q, row.userAnswer);
+
+  root.innerHTML = `
+    <div class="exam-head">
+      <span class="exam-progress">自评 <b>${exam.judgeIndex + 1}</b> / ${pending.length}</span>
+      <span class="exam-timer">交卷后自评</span>
+    </div>
+    <div class="mini-bar"><i style="width:${Math.round((exam.judgeIndex / pending.length) * 100)}%"></i></div>
+
+    <section class="exam-judge__item" style="margin-top:14px">
+      <div class="tags">${typeTag(q.type)}${domainTag(q.domain)}${bankTag(q)}</div>
+      <p class="stem">${esc(q.stem)}</p>
+      <div class="short-answer">
+        <div class="short-answer__label">你的作答</div>
+        <p class="short-answer__text">${esc(mine)}</p>
+      </div>
+      <div class="answer-line" style="margin-top:10px">参考答案：<b class="answer-line__block">${esc(displayAnswer(q))}</b></div>
+      ${q.analysis ? `<div class="analysis"><span class="analysis__label">解析</span>${esc(q.analysis)}</div>` : ""}
+      <div class="exam-judge__btns">
+        <button class="btn btn--ok btn--block" id="ejOk">我答对了 ✓</button>
+        <button class="btn btn--bad btn--block" id="ejBad">我答错了 ×</button>
+      </div>
+      <p class="exam-judge__hint">判定结果将计入成绩与错题本。</p>
+    </section>
+  `;
+
+  const judge = (says: boolean): void => {
+    row.correct = says;
+    recordAnswer(q, row.userAnswer, says);
+    exam.judgeIndex++;
+    if (exam.judgeIndex >= pending.length) {
+      exam.phase = "result";
+      renderExamResult(root);
+    } else {
+      renderExamJudge(root);
+    }
+  };
+  root.querySelector("#ejOk")?.addEventListener("click", () => judge(true));
+  root.querySelector("#ejBad")?.addEventListener("click", () => judge(false));
+}
+
+function renderExamResult(root: HTMLElement): void {
+  const s = S!;
+  const exam = s.exam!;
+  const rows = exam.rows;
+  const total = rows.length;
+  const correct = rows.filter((r) => r.correct).length;
+  const score = total ? Math.round((correct / total) * 100) : 0;
+  const typeScores = examTypeScores(rows, typeLabels());
+  const wrong = total - correct;
+
+  root.innerHTML = `
+    <section class="card">
+      <div class="exam-score">${score}<small> 分</small></div>
+      <div class="exam-score__label">
+        共 ${total} 题 · 答对 ${correct} 题 · 答错 ${wrong} 题（正确率 ${score}%）
+      </div>
+      <h2 class="card__title">分题型得分</h2>
+      <div class="kpi-row">
+        ${typeScores.map((t) => `
+          <div class="kpi">
+            <b>${t.correct}/${t.total}</b>
+            <span>${esc(t.label)}</span>
+          </div>`).join("")}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">逐题清单 <small>你的答案 / 正确答案</small></h2>
+      <div class="exam-table">
+        ${rows.map((r, i) => {
+          const blank = isBlank(r.q, r.userAnswer);
+          const cls = blank ? "exam-row--skip" : r.correct ? "exam-row--ok" : "exam-row--bad";
+          const mark = blank ? "—" : r.correct ? "✓" : "×";
+          return `<div class="exam-row ${cls}">
+            <span class="exam-row__idx">${i + 1}</span>
+            <span class="exam-row__mine">${esc(displayUserAnswer(r.q, r.userAnswer))}</span>
+            <span class="exam-row__right">${esc(displayAnswer(r.q))}</span>
+            <span class="exam-row__mark">${mark}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </section>
+
+    <div class="actions" style="flex-direction:column">
+      <button class="btn btn--primary btn--block" id="exAgain">再考一次</button>
+      <button class="btn btn--block" id="exBanks">返回题库</button>
+      <button class="btn btn--block" id="exWrong">查看错题本（${wrong}）</button>
+      <button class="btn btn--block" id="exHome">返回首页</button>
+    </div>
+  `;
+
+  root.querySelector("#exAgain")?.addEventListener("click", () => {
+    S = createSession(S!.params);
+    startTimer(root);
+    renderExam(root);
+  });
+  root.querySelector("#exBanks")?.addEventListener("click", () => navigate("banks"));
+  root.querySelector("#exWrong")?.addEventListener("click", () => navigate("wrongbook"));
+  root.querySelector("#exHome")?.addEventListener("click", () => navigate("home"));
+}
+
 /* ---------------- 调试钩子 ---------------- */
 
-/**
- * 只读快照：当前会话的题序与当前题目 id。
- * 供 e2e 验证「再刷一遍 = 同一批 / 换一批 = 重新抽题」这类不可见的会话契约。
- */
+/** 只读快照：练习会话的题序与当前题（e2e 验证「同批 / 换批」契约） */
 export function debugSession(): { ids: string[]; index: number; current: string | null } {
   if (!S) return { ids: [], index: 0, current: null };
   return { ids: S.queue.map((q) => q.id), index: S.index, current: S.queue[S.index]?.id ?? null };
+}
+
+/** 只读快照：考试状态（e2e 验证考试契约） */
+export function debugExam(): {
+  mode: string; phase: string | null; total: number; answered: number; judged: number;
+  score: number | null; endsAt: number | null;
+} {
+  if (!S?.exam) return { mode: S?.params.mode ?? "", phase: null, total: 0, answered: 0, judged: 0, score: null, endsAt: null };
+  const rows = S.exam.rows;
+  const correct = rows.filter((r) => r.correct).length;
+  return {
+    mode: S.params.mode ?? "",
+    phase: S.exam.phase,
+    total: S.queue.length,
+    answered: examAnsweredCount(),
+    judged: S.exam.judgeIndex,
+    score: S.exam.phase === "result" && rows.length ? Math.round((correct / rows.length) * 100) : null,
+    endsAt: S.exam.endsAt,
+  };
 }
 
 /* ---------------- 视图导出 ---------------- */
 
 const view: View = {
   async render(root, params) {
-    S = createSession(params ?? {});
+    const p = params ?? {};
+    S = createSession(p);
+
+    // 只对「普通练习」记录范围偏好（错题/今日/收藏/考试不进「继续上次练习」）
+    const mode = p.mode ?? "";
+    if (!mode) {
+      const banks = p.banks ? p.banks.split(",").filter(Boolean) : getSelectedBanks();
+      setLastScope({ banks, domain: p.domain, type: p.type });
+    }
+
+    if (S.exam) { renderExam(root); startTimer(root); return; }
     paint(root);
   },
   unmount() {
+    stopTimer();
     S = null;
   },
 };
