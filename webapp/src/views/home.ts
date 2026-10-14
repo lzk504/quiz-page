@@ -107,11 +107,15 @@ function continueCard(): string {
   const rest = Math.max(0, pool.length - answered);
   const rate = answered ? pct(correct, answered) : 0;
 
+  const isChapter = scope?.from === "chapter";
+  const titleText = isChapter ? "▷ 继续上次章节练习" : "▷ 继续上次练习";
+  const tagText = isChapter ? "章节模式" : "练习模式";
+
   return `
     <section class="card continue-card" id="continueCard">
       <div class="continue-card__head">
-        <h2 class="card__title" style="margin:0">▷ 继续上次练习</h2>
-        <span class="continue-card__tag">练习模式</span>
+        <h2 class="card__title" style="margin:0">${titleText}</h2>
+        <span class="continue-card__tag">${tagText}</span>
       </div>
       <p class="continue-card__desc">${esc(scopeLabel(scope, pool))} · 还有 <b>${rest}</b> 题没做过。</p>
       <div class="continue-card__meta">
@@ -272,6 +276,7 @@ const view: View = {
       const params: Record<string, string> = { banks: scope.banks.join(","), fresh: "0" };
       if (scope.domain) params.domain = scope.domain;
       if (scope.type) params.type = scope.type;
+      if (scope.from) params.from = scope.from;
       navigate("practice", params);
     });
 

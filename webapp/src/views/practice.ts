@@ -1268,7 +1268,7 @@ const view: View = {
     // 只对「普通练习」记录范围偏好（错题/今日/收藏/考试不进「继续上次练习」）
     if (!mode) {
       const banks = p.banks ? p.banks.split(",").filter(Boolean) : getSelectedBanks();
-      setLastScope({ banks, domain: p.domain, type: p.type });
+      setLastScope({ banks, domain: p.domain, type: p.type, from: p.from });
     }
 
     if (S.exam) { renderExam(root); startTimer(root); return; }

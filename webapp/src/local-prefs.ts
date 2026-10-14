@@ -23,6 +23,8 @@ export interface LastScope {
   banks: string[];
   domain?: string;
   type?: string;
+  /** 练习来源（如 'chapter' 表示从章节目录进入） */
+  from?: string;
   /** 记录时间，用于判断「是否仍有进度」的兜底 */
   at: number;
 }
@@ -39,6 +41,7 @@ export function getLastScope(): LastScope | null {
       banks,
       domain: typeof v.domain === "string" && v.domain ? v.domain : undefined,
       type: typeof v.type === "string" && v.type ? v.type : undefined,
+      from: typeof v.from === "string" && v.from ? v.from : undefined,
       at: Number(v.at) || 0,
     };
   } catch { return null; }
@@ -50,6 +53,7 @@ export function setLastScope(scope: Omit<LastScope, "at"> | null): void {
     banks: scope.banks,
     domain: scope.domain,
     type: scope.type,
+    from: scope.from,
     at: Date.now(),
   };
   write(LAST_SCOPE_KEY, JSON.stringify(value));
