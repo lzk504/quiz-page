@@ -16,8 +16,8 @@ let current: View | null = null;
 let onAfter: ((route: Route) => void) | null = null;
 
 const PUBLIC_VIEWS = new Set(["login"]);
-/** 自带标题区（蓝卡 / 紫卡 / 沉浸页）的视图：隐藏顶栏品牌栏 */
-const TOPBAR_HIDDEN = new Set(["home", "me", "practice", "login"]);
+/** 自带标题区（蓝卡 / 紫卡 / 沉浸页 / 列表页标题头）的视图：隐藏顶栏品牌栏 */
+const TOPBAR_HIDDEN = new Set(["home", "me", "practice", "login", "banks", "wrongbook"]);
 
 export function register(name: string, view: View): void {
   views.set(name, view);

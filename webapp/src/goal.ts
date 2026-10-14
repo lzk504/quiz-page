@@ -10,7 +10,7 @@
 
 import { questionDomainLabel } from "./state";
 import { pct } from "./utils";
-import type { FavoriteEntry, Question, QuizStore, QuestionType } from "./types";
+import type { FavoriteEntry, Question, QuizStore, QuestionType, RecordEntry } from "./types";
 
 /** 今日目标题数（固定值，v6 决策 7） */
 export const DAILY_GOAL = 100;
@@ -287,6 +287,19 @@ export function chapterOrderSort(pool: Question[]): Question[] {
     const pb = TYPE_PRIORITY[b.type] ?? 99;
     return pa - pb;
   });
+}
+
+/**
+ * 章节续答排序：在 chapterOrderSort 基础上稳定分区——未做题在前、已做题在后
+ * （两组内部保持章节题型顺序）。进入章节练习时从第一道未做题（即队首）开始，
+ * 已做题留在队尾供「上一题」回看。
+ */
+export function chapterResumeSort(pool: Question[], records: Record<string, RecordEntry>): Question[] {
+  const ordered = chapterOrderSort(pool);
+  const fresh: Question[] = [];
+  const done: Question[] = [];
+  for (const q of ordered) (records[q.id] ? done : fresh).push(q);
+  return [...fresh, ...done];
 }
 
 /**

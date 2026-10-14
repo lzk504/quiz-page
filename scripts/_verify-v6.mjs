@@ -166,7 +166,7 @@ const ADMIN_PW = `Pass${rnd()}1`;
   console.log("\n[4] 题库 tab");
   await go("banks", 400);
   ok("题库 tab 高亮", (await page.$eval('.tab[data-tab="banks"]', (n) => n.classList.contains("is-active"))) === true);
-  ok("顶栏品牌名仍在（列表页）", (await display(".topbar")) !== "none");
+  ok("题库页隐藏顶栏（品牌与完成度移除）", (await display(".topbar")) === "none");
   ok("库 pills 3 个", (await count(".bank-pill")) === 3);
   const pillTexts = await page.$$eval(".bank-pill", (ns) => ns.map((n) => n.textContent.trim()));
   ok("pill 文案隐藏题库编号（无 G/P/Y 前缀）",
@@ -394,9 +394,73 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("重新开始后从第 1 题开始", s2.index === 0, `index=${s2.index}`);
   await shot("06b-practice-resume");
 
+  /* ---------- [6.6] 章节续答：按作答记录定位，不读草稿 ---------- */
+  console.log("\n[6.6] 章节续答");
+  await clearDraft();
+  await go("banks", 500);
+  await clearDraft();   // go("banks") 触发上一段快速练习会话 unmount 会写草稿（既有设计），此处再清一次以隔离
+  await domClick(".chapter");
+  await page.waitForSelector(".practice-head", { timeout: 10000 });
+  await sleep(400);
+  ok("章节进入练习不弹续刷弹窗", (await count(".modal")) === 0, `modal=${await count(".modal")}`);
+  const c0 = await session();
+  ok("章节队列全量入队（> 100）", c0.ids.length > 100, `${c0.ids.length} 题`);
+
+  // 答前 2 题（记下题 id），中途退出
+  const answered2 = [];
+  for (let i = 0; i < 2; i++) {
+    const snap = await session();
+    answered2.push(snap.current);
+    const q = await qMeta(snap.current);
+    await answerWrong(q);
+    await sleep(200);
+    await commitWrongPractice(q);
+    await sleep(300);
+    await domClick("#pNext");
+    await sleep(400);
+  }
+  await go("home", 400);
+  ok("章节会话中途退出不写草稿", (await hasDraft()) === false);
+
+  // 再次进入：无弹窗、题量不变、已做题移到队尾、当前题 = 第一道未做题
+  await go("banks", 500);
+  await domClick(".chapter");
+  await page.waitForSelector(".practice-head", { timeout: 10000 });
+  await sleep(400);
+  ok("再次进入章节练习仍无弹窗", (await count(".modal")) === 0, `modal=${await count(".modal")}`);
+  const c1 = await session();
+  ok("章节队列题量不变", c1.ids.length === c0.ids.length, `${c1.ids.length} vs ${c0.ids.length}`);
+  ok("已做的 2 题按序移到队尾（未做题优先）",
+    c1.ids.slice(-2).join(",") === answered2.join(","), `tail=${c1.ids.slice(-2).join(",")}`);
+  const recNow = await store();
+  ok("当前题为该章节第一道未做题", !recNow.records[c1.current], `${c1.current}`);
+  ok("从第 1 题开始（index=0）", c1.index === 0, `index=${c1.index}`);
+
+  // 回看：答 1 题 → 下一题 → 上一题 → 查看态（判定结果回显）
+  const qCur = await qMeta(c1.current);
+  await answerWrong(qCur);
+  await sleep(200);
+  await commitWrongPractice(qCur);
+  await sleep(300);
+  await domClick("#pNext");
+  await sleep(400);
+  ok("章节练习出现「上一题」按钮", (await count("#pPrev")) === 1);
+  await domClick("#pPrev");
+  await sleep(400);
+  const c2 = await session();
+  ok("上一题回到刚答的题", c2.index === 0, `index=${c2.index}`);
+  ok("回看态显示判定结果", (await count(".verdict")) === 1, `verdict=${await count(".verdict")}`);
+  await shot("14-chapter-resume");
+  await domClick("#pNext");
+  await sleep(400);
+  const c3 = await session();
+  const rec3 = await store();
+  ok("下一题恢复到未做题（新题态）", c3.index === 1 && !rec3.records[c3.current], `index=${c3.index} cur=${c3.current}`);
+
   /* ---------- [7] 错题本 ---------- */
   console.log("\n[7] 错题本");
   await go("wrongbook", 500);
+  ok("错题本页隐藏顶栏（品牌与完成度移除）", (await display(".topbar")) === "none");
   const kpiCells = await count(".wb-kpi__cell");
   ok("错题本三数字概览", kpiCells === 3, `实际 ${kpiCells}`);
   const wbItems = await count(".wb-item");

@@ -22,7 +22,7 @@ import { getStore, recordAnswer, toggleFavorite, isFavorite } from "../storage";
 import { grade, displayAnswer, displayUserAnswer, isSelfJudged, type GradeResult } from "../scoring";
 import {
   shuffle, examPick, examBlueprint, examTypeScores, DAILY_GOAL, todayAnswered, EXAM_MINUTES,
-  chapterOrderSort, smartPracticeSort,
+  chapterOrderSort, chapterResumeSort, smartPracticeSort,
   type ExamResultRow,
 } from "../goal";
 import { setLastScope } from "../local-prefs";
@@ -91,6 +91,7 @@ interface PracticeDraft {
 function saveDraft(): void {
   const s = S;
   if (!s || s.params.mode || s.isReviewMode) return;              // 特殊模式与查看解析模式不存草稿
+  if (s.params.from === "chapter") return;                        // 章节练习按作答记录续答，不进草稿（也不误清其他入口的草稿）
   if (s.done || !s.queue.length || s.index >= s.queue.length) { clearDraft(); return; }
   try {
     const draft: PracticeDraft = { params: s.params, ids: s.queue.map((q) => q.id), index: s.index, at: Date.now() };
@@ -143,15 +144,6 @@ const isBlank = (q: Question, ua: unknown): boolean => {
   return ua === undefined || ua === null || ua === "";
 };
 
-/** 未作答的题排在前面（「继续上次练习」用，保持组内随机） */
-function unansweredFirst(pool: Question[]): Question[] {
-  const records = getStore().records ?? {};
-  const fresh: Question[] = [];
-  const done: Question[] = [];
-  for (const q of pool) (records[q.id] ? done : fresh).push(q);
-  return [...shuffle(fresh), ...shuffle(done)];
-}
-
 function buildPool(params: Record<string, string>): Question[] {
   const mode = params.mode ?? "";
 
@@ -202,9 +194,9 @@ function buildPool(params: Record<string, string>): Question[] {
     return true;
   });
 
-  // 1. 章节目录发起的练习：严格按题型固定顺序（单选>多选>判断>填空>简答）
+  // 1. 章节目录发起的练习：未做题在前（组内保持题型固定顺序 单选>多选>判断>填空>简答），已做题移到队尾供回看
   if (params.from === "chapter") {
-    return chapterOrderSort(filtered);
+    return chapterResumeSort(filtered, getStore().records ?? {});
   }
   // 2. 其它普通练习：采用智能推荐（未做题优先 > 错题 > 艾宾浩斯复习）
   return smartPracticeSort(filtered, getStore());
@@ -454,6 +446,7 @@ function renderShort(q: Question): string {
 function renderActions(q: Question): string {
   const s = S!;
   const last = s.index === s.queue.length - 1;
+  const isChapterNav = !s.params.mode && s.params.from === "chapter";
 
   if (s.isReviewMode) {
     return `<div class="self-judge">
@@ -469,17 +462,24 @@ function renderActions(q: Question): string {
     </div>`;
   }
 
+  // 章节续答：可回看上一题（已做题以查看态呈现）
+  const prevBtn = isChapterNav && s.index > 0
+    ? `<button class="btn btn--block" id="pPrev">‹ 上一题</button>`
+    : "";
+
+  let core: string;
   if (s.settled) {
-    return `<button class="btn btn--primary btn--block" id="pNext">${last ? "完成本次练习" : "下一题 →"}</button>`;
+    core = `<button class="btn btn--primary btn--block" id="pNext">${last ? "完成本次练习" : "下一题 →"}</button>`;
+  } else if (q.type === "multiple") {
+    core = `<button class="btn btn--primary btn--block" id="pConfirm" disabled>确认答案</button>`;
+  } else if (isSelfJudged(q)) {
+    core = `<button class="btn btn--primary btn--block" id="pConfirm">对照答案</button>`;
+  } else {
+    core = "";                                   // 客观题点击选项即判定
   }
 
-  if (q.type === "multiple") {
-    return `<button class="btn btn--primary btn--block" id="pConfirm" disabled>确认答案</button>`;
-  }
-  if (isSelfJudged(q)) {
-    return `<button class="btn btn--primary btn--block" id="pConfirm">对照答案</button>`;
-  }
-  return "";
+  if (!prevBtn) return core;
+  return `<div class="self-judge">${prevBtn}${core}</div>`;
 }
 
 function renderFeedback(q: Question): string {
@@ -718,8 +718,10 @@ function bind(root: HTMLElement, q: Question): void {
   root.querySelector("#pJudgeOk")?.addEventListener("click", () => judgeSelf(root, q, true));
   root.querySelector("#pJudgeBad")?.addEventListener("click", () => judgeSelf(root, q, false));
 
+  const isChapterNav = !s.params.mode && s.params.from === "chapter" && !s.isReviewMode;
+
   root.querySelector<HTMLButtonElement>("#pPrev")?.addEventListener("click", () => {
-    if (!s.isReviewMode || s.index <= 0) return;
+    if ((!s.isReviewMode && !isChapterNav) || s.index <= 0) return;
     s.index--;
     const records = getStore().records ?? {};
     const prevQ = s.queue[s.index];
@@ -749,10 +751,18 @@ function bind(root: HTMLElement, q: Question): void {
       return;
     }
     s.index++;
-    s.settled = false;
     s.awaitingJudge = false;
-    s.result = null;
-    s.userAnswer = null;
+    if (isChapterNav) {
+      // 章节续答：前进到已做题以查看态呈现（上次答案 + 对错），未做题则是新题
+      const rec = (getStore().records ?? {})[s.queue[s.index]?.id ?? ""];
+      s.settled = !!rec;
+      s.userAnswer = rec?.lastUserAnswer ?? null;
+      s.result = rec ? { correct: !!rec.lastCorrect } : null;
+    } else {
+      s.settled = false;
+      s.result = null;
+      s.userAnswer = null;
+    }
     paint(root);
   });
 }
@@ -1220,10 +1230,10 @@ const view: View = {
     const mode = p.mode ?? "";
     const seq = ++renderSeq;
 
-    // 普通练习模式：若有本地草稿，先询问「继续上次」还是「重新开始」
+    // 普通练习模式：若有本地草稿，先询问「继续上次」还是「重新开始」（章节练习按作答记录续答，不读草稿）
     let s: Session;
     let resumedDraft = false;
-    if (!mode) {
+    if (!mode && p.from !== "chapter") {
       const d = readDraft();
       if (d) {
         const cont = await confirmDialog({

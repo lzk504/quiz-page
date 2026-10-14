@@ -32,6 +32,7 @@ scripts/_shots/
 *.log
 
 # ---------- 本地题库工具链（仅本地生成/校验题库，不参与构建与部署）----------
+scripts/
 scripts/*.py
 scripts/_gen/
 scripts/_smoke.js
