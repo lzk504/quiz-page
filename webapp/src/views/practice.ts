@@ -1,8 +1,8 @@
 /**
- * 刷题页（v6 大改）：练习模式（即时判定）· 错题重刷 · 今日目标 · 单题练习 · 考试模式
+ * 刷题页（v6 大改 / v6.1 修复）：练习模式（即时判定）· 错题重刷 · 今日目标 · 单题练习 · 考试模式
  *
  * 模式（params.mode）：
- *   （无）  练习模式：随机 ≤100 题、即时判定、填空/简答对照后自评
+ *   （无）  练习模式：随机 ≤100 题、即时判定、填空/简答对照后自评；**支持中途退出续刷（本地草稿）**
  *   wrong  错题重刷：错题池全量入队（不截断）
  *   daily  今日目标：抽未做过的题，上限 = 100 − 今日已刷
  *   fav    单题练习（qid）
@@ -10,8 +10,10 @@
  *
  * 考试语义（与练习模式的差别，勿混用状态）：
  *   - 作答过程中不判分、不落库、不显示答案；
- *   - 交卷时才批量判分：客观题直接落库，填空/简答进入统一自评阶段逐题判定；
- *   - 交卷后不可返回作答（退出即作废）。
+ *   - 交卷时才批量判分：已作答的客观题直接落库，已作答的填空/简答进入统一自评；
+ *     **未作答题不计分、不自评、不落库、不进错题本**（分母 = 已作答题数）；
+ *   - 交卷 / 退出均需自定义弹窗确认；退出 = 按已作答题目提前交卷出分（不再直接作废）；
+ *   - 考试模式**不提供草稿续刷**（只有普通练习模式有）。
  */
 
 import { getQuestions, getLoadedQuestions, getQuestion, getSelectedBanks,
@@ -23,9 +25,10 @@ import {
   type ExamResultRow,
 } from "../goal";
 import { setLastScope } from "../local-prefs";
+import { getCurrentUser } from "../auth";
 import { esc } from "../utils";
 import { navigate } from "../router";
-import { domainTag, typeTag, bankTag, emptyState, toast } from "../ui";
+import { domainTag, typeTag, bankTag, emptyState, toast, confirmDialog, closeActiveDialog } from "../ui";
 import type { Question, View } from "../types";
 
 /** 单次练习的抽题上限（考试 = 100 题蓝图；错题重刷不受限） */
@@ -60,10 +63,64 @@ interface Session {
   exam: ExamState | null;
   /** 今日目标模式的说明（目标已达成等） */
   emptyHint?: string;
+  /** 已渲染过总结页（本次练习完成），用于 unmount 时不写草稿 */
+  done?: boolean;
 }
 
 let S: Session | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
+/** 渲染代次：异步等待（续刷弹窗）期间若已切走，用代次判断放弃本次渲染 */
+let renderSeq = 0;
+
+/* ---------------- 练习草稿（仅普通练习模式，key 含用户名防多账号串） ---------------- */
+
+const DRAFT_PREFIX = "quizapp.draft.v1.";
+const draftKey = (): string => DRAFT_PREFIX + (getCurrentUser()?.username ?? "anon");
+
+interface PracticeDraft {
+  params: Record<string, string>;
+  /** 本次题序（保序还原） */
+  ids: string[];
+  index: number;
+  at: number;
+}
+
+function saveDraft(): void {
+  const s = S;
+  if (!s || s.params.mode) return;              // 特殊模式不存草稿
+  if (s.done || !s.queue.length || s.index >= s.queue.length) { clearDraft(); return; }
+  try {
+    const draft: PracticeDraft = { params: s.params, ids: s.queue.map((q) => q.id), index: s.index, at: Date.now() };
+    localStorage.setItem(draftKey(), JSON.stringify(draft));
+  } catch { /* ignore */ }
+}
+
+function readDraft(): PracticeDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return null;
+    const d = JSON.parse(raw) as PracticeDraft;
+    if (!d || !Array.isArray(d.ids) || !d.ids.length) return null;
+    if (typeof d.index !== "number" || d.index < 0) return null;
+    return d;
+  } catch { return null; }
+}
+
+function clearDraft(): void {
+  try { localStorage.removeItem(draftKey()); } catch { /* ignore */ }
+}
+
+/** 按草稿还原会话（题序保序；题池缩水时 clamp 当前题） */
+function resumeSession(d: PracticeDraft): Session {
+  const s = createSession(d.params);
+  const queue = d.ids.map((id) => getQuestion(id)).filter((q): q is Question => !!q);
+  if (queue.length) {
+    s.queue = queue;
+    s.index = Math.min(Math.max(0, d.index), queue.length - 1);
+  }
+  s.done = false;
+  return s;
+}
 
 /* ---------------- 题池 ---------------- */
 
@@ -182,8 +239,6 @@ function createSession(params: Record<string, string>): Session {
     });
     const tNames = types.map((t) => typeLabels()[t] ?? t);
     title = [...tNames, ...dNames].join(" · ") || "全部题目";
-    if (params.banks && params.banks.split(",").filter(Boolean).length > 1) title = `合并刷题 · ${title}`;
-    else if (!params.banks && getSelectedBanks().length > 1) title = `合并刷题 · ${title}`;
   }
 
   // 队列：考试按蓝图抽题；错题重刷全量重排；单题/今日目标用已排序的池；普通练习截断到 100
@@ -433,6 +488,7 @@ function renderFeedback(q: Question): string {
 
 function renderSummary(root: HTMLElement): void {
   const s = S!;
+  s.done = true;                                 // 到达总结页 = 本次练习完成（unmount 不再写草稿）
   const { answered, correct, wrongAdded, wrongCleared } = s.stats;
   const rate = answered ? Math.round((correct / answered) * 100) : 0;
   const batchSize = s.queue.length;
@@ -469,6 +525,7 @@ function renderSummary(root: HTMLElement): void {
     s2.result = null;
     s2.userAnswer = null;
     s2.stats = { answered: 0, correct: 0, wrongAdded: 0, wrongCleared: 0 };
+    s2.done = false;
     paint(root);
   });
 
@@ -774,11 +831,11 @@ function renderExam(root: HTMLElement): void {
     <div class="actions" id="qActions">
       <button class="btn" id="examPrev" ${s.index === 0 ? "disabled" : ""}>← 上一题</button>
       ${s.index === s.queue.length - 1
-        ? `<button class="btn btn--primary" id="examSubmit">交卷</button>`
+        ? `<button class="btn btn--primary" id="examSubmit" ${answered ? "" : "disabled"}>交卷</button>`
         : `<button class="btn btn--primary" id="examNext">下一题 →</button>`}
     </div>
     <div class="actions" style="margin-top:10px">
-      <button class="btn btn--block" id="examSubmit2">交卷（已答 ${answered} / ${s.queue.length}）</button>
+      <button class="btn btn--block" id="examSubmit2" ${answered ? "" : "disabled"}>交卷（已答 ${answered} / ${s.queue.length}）</button>
     </div>
   `;
 
@@ -798,8 +855,13 @@ function bindExamQuestion(root: HTMLElement, q: Question): void {
     const answered = examAnsweredCount();
     const prog = root.querySelector(".exam-progress");
     if (prog) prog.innerHTML = `<b>${s.index + 1}</b> / ${s.queue.length}　已答 ${answered}`;
-    const sub2 = root.querySelector("#examSubmit2");
-    if (sub2) sub2.textContent = `交卷（已答 ${answered} / ${s.queue.length}）`;
+    const sub2 = root.querySelector<HTMLButtonElement>("#examSubmit2");
+    if (sub2) {
+      sub2.textContent = `交卷（已答 ${answered} / ${s.queue.length}）`;
+      sub2.disabled = answered === 0;
+    }
+    const sub1 = root.querySelector<HTMLButtonElement>("#examSubmit");
+    if (sub1) sub1.disabled = answered === 0;
     const bar = root.querySelector(".mini-bar i") as HTMLElement | null;
     if (bar) bar.style.width = `${Math.round((answered / s.queue.length) * 100)}%`;
     bindExamQuestion(root, q);
@@ -847,51 +909,79 @@ function bindExamNav(root: HTMLElement): void {
     renderExam(root);
   });
 
-  const submitHandler = (): void => {
+  const submitHandler = async (): Promise<void> => {
     collectExamAnswer(root);
-    const blank = s.queue.length - examAnsweredCount();
+    const answered = examAnsweredCount();
+    if (answered === 0) return;                 // 未作答不可交卷（按钮也已禁用）
+    const blank = s.queue.length - answered;
     const msg = blank > 0
-      ? `还有 ${blank} 道题未作答（未作答按错题计分）。确定交卷吗？`
+      ? `还有 ${blank} 道题未作答，交卷后仅按已作答的 ${answered} 题计分（未作答不计分）。确定交卷吗？`
       : "确定交卷吗？交卷后本次考试不可再修改。";
-    if (!window.confirm(msg)) return;
+    const ok = await confirmDialog({
+      title: "交卷确认", message: msg, confirmText: "交卷", danger: true,
+    });
+    if (!ok) return;
     submitExam(root, false);
   };
-  root.querySelector("#examSubmit")?.addEventListener("click", submitHandler);
-  root.querySelector("#examSubmit2")?.addEventListener("click", submitHandler);
+  root.querySelector("#examSubmit")?.addEventListener("click", () => { void submitHandler(); });
+  root.querySelector("#examSubmit2")?.addEventListener("click", () => { void submitHandler(); });
 
-  root.querySelector("#examExit")?.addEventListener("click", () => {
-    if (!window.confirm("退出后本次考试作废，确定退出？")) return;
-    stopTimer();
-    navigate("home");
+  root.querySelector("#examExit")?.addEventListener("click", async () => {
+    const answered = examAnsweredCount();
+    const ok = await confirmDialog({
+      title: "退出考试",
+      message: answered > 0
+        ? `退出将结束本次考试，并按已作答的 ${answered} 题出分（未作答不计分）。确定退出吗？`
+        : "退出将结束本次考试。当前尚未作答任何题目，退出后本次考试不计分。确定退出吗？",
+      confirmText: "退出并出分", cancelText: "继续作答", danger: true,
+    });
+    if (!ok) return;
+    submitExam(root, false);                    // 提前交卷出分（不再直接作废回首页）
   });
 }
 
-/** 交卷：停表 → 客观题批量判分落库 → 自判题进入统一自评 */
+/** 交卷：先判分（不改 phase，异常可重试）→ 客观题批量落库 → 自判题进入统一自评 */
 function submitExam(root: HTMLElement, auto: boolean): void {
   const s = S;
   if (!s?.exam || s.exam.phase !== "answer") return;
   const exam = s.exam;
 
-  stopTimer();
   collectExamAnswer(root);
-  exam.phase = "judging";
-  exam.judgeIndex = 0;
-  exam.rows = [];
 
-  for (const q of s.queue) {
-    const ua = exam.answers.get(q.id);
-    if (isSelfJudged(q)) {
-      exam.rows.push({ q, userAnswer: ua, correct: false });   // 待自评
-      continue;
+  // ① 先判分，全部成功后才切阶段：中途异常时 phase 仍为 "answer"，可重试
+  const rows: ExamResultRow[] = [];
+  try {
+    for (const q of s.queue) {
+      const ua = exam.answers.get(q.id);
+      if (isBlank(q, ua)) {
+        rows.push({ q, userAnswer: ua, correct: false, skipped: true });  // 未作答：不计分 / 不自评 / 不落库
+        continue;
+      }
+      if (isSelfJudged(q)) {
+        rows.push({ q, userAnswer: ua, correct: false });                 // 待自评
+        continue;
+      }
+      let correct = false;
+      try { correct = !!grade(q, ua)?.correct; }
+      catch (e) { console.error("[exam] 判分异常", q.id, e); }
+      recordAnswer(q, ua, correct);
+      rows.push({ q, userAnswer: ua, correct });
     }
-    const correct = !isBlank(q, ua) && !!grade(q, ua)?.correct;
-    if (!isBlank(q, ua)) recordAnswer(q, ua, correct);
-    exam.rows.push({ q, userAnswer: ua, correct });
+  } catch (e) {
+    console.error("[exam] 交卷失败", e);
+    toast("交卷失败，请重试", "bad");
+    return;
   }
+
+  // ② 全部成功：停表 + 进入判分/出分阶段
+  stopTimer();
+  exam.rows = rows;
+  exam.judgeIndex = 0;
+  exam.phase = "judging";
 
   if (auto) toast("考试时间已到，已自动交卷", "bad");
 
-  const pending = exam.rows.filter((r) => isSelfJudged(r.q));
+  const pending = exam.rows.filter((r) => isSelfJudged(r.q) && !r.skipped);
   if (pending.length) renderExamJudge(root);
   else { exam.phase = "result"; renderExamResult(root); }
 }
@@ -900,7 +990,7 @@ function submitExam(root: HTMLElement, auto: boolean): void {
 function renderExamJudge(root: HTMLElement): void {
   const s = S!;
   const exam = s.exam!;
-  const pending = exam.rows.filter((r) => isSelfJudged(r.q));
+  const pending = exam.rows.filter((r) => isSelfJudged(r.q) && !r.skipped);
 
   if (exam.judgeIndex >= pending.length) {
     exam.phase = "result";
@@ -955,38 +1045,43 @@ function renderExamResult(root: HTMLElement): void {
   const s = S!;
   const exam = s.exam!;
   const rows = exam.rows;
-  const total = rows.length;
-  const correct = rows.filter((r) => r.correct).length;
+  const answered = rows.filter((r) => !r.skipped);      // 分母 = 已作答题数
+  const total = answered.length;
+  const correct = answered.filter((r) => r.correct).length;
   const score = total ? Math.round((correct / total) * 100) : 0;
-  const typeScores = examTypeScores(rows, typeLabels());
+  const typeScores = examTypeScores(answered, typeLabels());
   const wrong = total - correct;
+  const skipped = rows.length - total;
+
+  const label = total
+    ? `共作答 ${total} 题 · 答对 ${correct} 题 · 答错 ${wrong} 题（正确率 ${score}%）${
+        skipped ? ` · 未作答 ${skipped} 题不计分` : ""}`
+    : "本次考试未作答任何题目，未计分";
 
   root.innerHTML = `
     <section class="card">
-      <div class="exam-score">${score}<small> 分</small></div>
-      <div class="exam-score__label">
-        共 ${total} 题 · 答对 ${correct} 题 · 答错 ${wrong} 题（正确率 ${score}%）
-      </div>
-      <h2 class="card__title">分题型得分</h2>
+      <div class="exam-score">${total ? score : "—"}${total ? "<small> 分</small>" : ""}</div>
+      <div class="exam-score__label">${label}</div>
+      ${typeScores.length ? `<h2 class="card__title">分题型得分</h2>
       <div class="kpi-row">
         ${typeScores.map((t) => `
           <div class="kpi">
             <b>${t.correct}/${t.total}</b>
             <span>${esc(t.label)}</span>
           </div>`).join("")}
-      </div>
+      </div>` : ""}
     </section>
 
     <section class="card">
       <h2 class="card__title">逐题清单 <small>你的答案 / 正确答案</small></h2>
       <div class="exam-table">
         ${rows.map((r, i) => {
-          const blank = isBlank(r.q, r.userAnswer);
-          const cls = blank ? "exam-row--skip" : r.correct ? "exam-row--ok" : "exam-row--bad";
-          const mark = blank ? "—" : r.correct ? "✓" : "×";
+          const cls = r.skipped ? "exam-row--skip" : r.correct ? "exam-row--ok" : "exam-row--bad";
+          const mark = r.skipped ? "—" : r.correct ? "✓" : "×";
+          const mine = r.skipped ? "未作答" : displayUserAnswer(r.q, r.userAnswer);
           return `<div class="exam-row ${cls}">
             <span class="exam-row__idx">${i + 1}</span>
-            <span class="exam-row__mine">${esc(displayUserAnswer(r.q, r.userAnswer))}</span>
+            <span class="exam-row__mine">${esc(mine)}</span>
             <span class="exam-row__right">${esc(displayAnswer(r.q))}</span>
             <span class="exam-row__mark">${mark}</span>
           </div>`;
@@ -1027,14 +1122,17 @@ export function debugExam(): {
 } {
   if (!S?.exam) return { mode: S?.params.mode ?? "", phase: null, total: 0, answered: 0, judged: 0, score: null, endsAt: null };
   const rows = S.exam.rows;
-  const correct = rows.filter((r) => r.correct).length;
+  const answeredRows = rows.filter((r) => !r.skipped);
+  const correct = answeredRows.filter((r) => r.correct).length;
   return {
     mode: S.params.mode ?? "",
     phase: S.exam.phase,
     total: S.queue.length,
     answered: examAnsweredCount(),
     judged: S.exam.judgeIndex,
-    score: S.exam.phase === "result" && rows.length ? Math.round((correct / rows.length) * 100) : null,
+    score: S.exam.phase === "result" && answeredRows.length
+      ? Math.round((correct / answeredRows.length) * 100)
+      : null,
     endsAt: S.exam.endsAt,
   };
 }
@@ -1044,10 +1142,32 @@ export function debugExam(): {
 const view: View = {
   async render(root, params) {
     const p = params ?? {};
-    S = createSession(p);
+    const mode = p.mode ?? "";
+    const seq = ++renderSeq;
+
+    // 普通练习模式：若有本地草稿，先询问「继续上次」还是「重新开始」
+    let s: Session;
+    if (!mode) {
+      const d = readDraft();
+      if (d) {
+        const cont = await confirmDialog({
+          title: "继续上次练习？",
+          message: `上次练习到第 ${Math.min(d.index + 1, d.ids.length)} 题（共 ${d.ids.length} 题）。\n选「继续刷题」接着上次的进度，选「重新开始」则放弃本地记录并重新抽题。`,
+          confirmText: "继续刷题",
+          cancelText: "重新开始",
+        });
+        if (seq !== renderSeq) return;              // 等待期间已切走，放弃本次渲染
+        if (cont) { s = resumeSession(d); }
+        else { clearDraft(); s = createSession(p); }
+      } else {
+        s = createSession(p);
+      }
+    } else {
+      s = createSession(p);
+    }
+    S = s;
 
     // 只对「普通练习」记录范围偏好（错题/今日/收藏/考试不进「继续上次练习」）
-    const mode = p.mode ?? "";
     if (!mode) {
       const banks = p.banks ? p.banks.split(",").filter(Boolean) : getSelectedBanks();
       setLastScope({ banks, domain: p.domain, type: p.type });
@@ -1057,7 +1177,10 @@ const view: View = {
     paint(root);
   },
   unmount() {
+    renderSeq++;                                // 让仍在等待弹窗的 render 放弃
     stopTimer();
+    closeActiveDialog();
+    saveDraft();                                // 仅普通练习模式写入；完成 / 到底则清草稿
     S = null;
   },
 };

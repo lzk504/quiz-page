@@ -152,6 +152,12 @@ export async function loadBanks(url: string = BANKS_URL): Promise<void> {
   const known = new Set(banks.map((b) => b.id));
   const stored = readSelected();
   let selected = (stored ?? [DEFAULT_BANK_ID]).filter((id) => known.has(id));
+  // 单选语义（v6.1）：刷题范围恒为单库，历史多选数据收敛为清单顺序第一个并回写
+  if (selected.length > 1) {
+    const ordered = banks.filter((b) => selected.includes(b.id)).map((b) => b.id);
+    selected = [ordered[0]];
+    writeSelected(selected);
+  }
   if (selected.length === 0) {
     selected = [known.has(DEFAULT_BANK_ID) ? DEFAULT_BANK_ID : banks[0].id];
   }
@@ -198,6 +204,23 @@ const bankIdOf = (id: string): string => (id.includes("-") ? id.split("-")[0] : 
 /** 题目所属题库 */
 export function getBankOf(q: Question | string): BankMeta | undefined {
   return getBank(bankIdOf(typeof q === "string" ? q : q.id));
+}
+
+/* ---------------- 题库展示名（v6.1：隐藏 G/P/Y 编号） ---------------- */
+
+/** 题库固定短名（展示用，不带编号） */
+const BANK_SHORT_NAMES: Record<string, string> = { G: "指南", P: "保育评估", Y: "纲要" };
+
+/** 书名号短标题：《…》取书名号内文本；无书名号则原样返回 */
+export function bankShortTitle(title: string): string {
+  const m = title.match(/《(.+?)》/);
+  return m ? m[1] : title;
+}
+
+/** 题库展示短名（无编号；未知库回退为书名短标题） */
+export function bankShortName(bankId: string): string {
+  const b = getBank(bankId);
+  return BANK_SHORT_NAMES[bankId] ?? (b ? bankShortTitle(b.title) : bankId);
 }
 
 /** 库内题量（按已加载的实际数据） */

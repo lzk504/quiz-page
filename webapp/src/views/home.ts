@@ -10,7 +10,7 @@
 
 import {
   getBanks, getLoadedQuestions, getQuestion, bankQuestionCount, isBankLoaded, ensureBank,
-  questionDomainLabel, typeLabels, getBank, getSelectedBanks,
+  questionDomainLabel, typeLabels, getBank, bankShortTitle, bankShortName,
 } from "../state";
 import { getStore } from "../storage";
 import {
@@ -25,12 +25,6 @@ import { emptyState } from "../ui";
 import type { BankMeta, Question, View } from "../types";
 
 /* ---------------- 小工具 ---------------- */
-
-/** 简短书名提取：《…》取书名号内文本；没有书名号则用完整标题（不做硬截断） */
-function shortBankTitle(title: string): string {
-  const match = title.match(/《(.+?)》/);
-  return match ? match[1] : title;
-}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -76,7 +70,7 @@ function scopeLabel(scope: LastScope, pool: Question[]): string {
   const bankTitles = scope.banks
     .map((id) => getBank(id))
     .filter((b): b is BankMeta => !!b)
-    .map((b) => shortBankTitle(b.title));
+    .map((b) => bankShortTitle(b.title));
   if (bankTitles.length) parts.push(bankTitles.join(" + "));
   if (scope.domain) {
     const sample = pool.find((q) => q.domain === scope.domain);
@@ -157,7 +151,7 @@ function subjectList(stats: Map<string, BankStat>): string {
     const loaded = isBankLoaded(b.id);
     const target = Object.values(b.typeCounts ?? {}).reduce((a, c) => a + c, 0) || bankQuestionCount(b.id);
     return `<button class="subject" data-bank="${esc(b.id)}">
-      <span class="subject__badge subject__badge--${esc(b.id)}">${esc(b.id)}</span>
+      <span class="subject__badge subject__badge--${esc(b.id)}">${esc(bankShortName(b.id))}</span>
       <span class="subject__body">
         <span class="subject__title">${esc(b.title)}</span>
         <span class="subject__meta">
@@ -226,7 +220,7 @@ const view: View = {
         ? `${left} 天后开考<small>${esc(examDate!)}</small>`
         : `已过考试日<small>${esc(examDate!)}</small>`;
 
-    const bankTitles = banks.map((b) => shortBankTitle(b.title));
+    const bankTitles = banks.map((b) => bankShortTitle(b.title));
     const totalTarget = banks.reduce(
       (a, b) => a + (Object.values(b.typeCounts ?? {}).reduce((x, y) => x + y, 0) || bankQuestionCount(b.id)), 0);
 

@@ -7,9 +7,10 @@
  * 用法：node scripts/_verify-v6.mjs [baseUrl] [outDir]
  *
  * 覆盖：标题口径 / 4 tab 壳层 / 首页（今日目标·快捷入口·备考科目·推荐复习）/
- *       题库 tab（选库·章节·题型·刷题范围）/ 练习（收藏星标）/ 考试模式（倒计时·零反馈·统一自评·出分）/
- *       错题本（三数字·题型 chips·答案对照·重做）/ 收藏页（不展示答案）/ 设置（考试日期）/ v3 备份迁移 /
- *       响应式不溢出 / 控制台无错误。
+ *       题库 tab（单选选库=刷题范围·章节联动·去编号·简介去重）/ 练习（收藏星标·退出续刷草稿）/
+ *       考试模式（倒计时·零反馈·弹窗交卷·仅按已作答计分·弹窗退出出分）/
+ *       错题本（三数字·题型 chips·答案对照·重做）/ 收藏页（不展示答案）/ 设置（考试日期）/
+ *       v3 备份迁移 / 响应式不溢出 / 控制台无错误。
  */
 import path from "node:path";
 import fs from "node:fs";
@@ -42,7 +43,6 @@ const ADMIN_PW = `Pass${rnd()}1`;
   });
   const page = await browser.newPage();
   await page.setDefaultTimeout(15000);
-  page.on("dialog", (d) => d.accept().catch(() => {}));
   page.on("console", (m) => {
     const t = m.type();
     if (t === "error" && /Failed to load resource/i.test(m.text())) return;
@@ -71,6 +71,17 @@ const ADMIN_PW = `Pass${rnd()}1`;
   const txt = (sel) => page.$eval(sel, (n) => n.textContent.trim()).catch(() => null);
   const count = (sel) => page.$$eval(sel, (n) => n.length).catch(() => 0);
   const domClick = (sel) => page.$eval(sel, (n) => n.click());
+  /** 自定义确认弹窗交互（替代原生 confirm） */
+  const modalConfirm = () => page.$eval("#modalOk", (n) => n.click());
+  const modalCancel = () => page.$eval("#modalCancel", (n) => n.click());
+  const DRAFT_KEY = `quizapp.draft.v1.${ADMIN}`;
+  const hasDraft = () => page.evaluate((k) => !!localStorage.getItem(k), DRAFT_KEY);
+  const clearDraft = () => page.evaluate((k) => localStorage.removeItem(k), DRAFT_KEY);
+  /** 进入普通练习页；若弹出续刷提示则选「重新开始」（清草稿 + 重抽） */
+  const enterPracticeFresh = async (wait = 400) => {
+    await go("practice", wait);
+    if ((await count(".modal")) === 1) { await modalCancel(); await sleep(300); }
+  };
   const session = () => page.evaluate(() => window.__quiz.practice.session());
   const examSnap = () => page.evaluate(() => window.__quiz.practice.exam());
   const store = () => page.evaluate(() => window.__quiz.storage.getStore());
@@ -157,6 +168,14 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("题库 tab 高亮", (await page.$eval('.tab[data-tab="banks"]', (n) => n.classList.contains("is-active"))) === true);
   ok("顶栏品牌名仍在（列表页）", (await display(".topbar")) !== "none");
   ok("库 pills 3 个", (await count(".bank-pill")) === 3);
+  const pillTexts = await page.$$eval(".bank-pill", (ns) => ns.map((n) => n.textContent.trim()));
+  ok("pill 文案隐藏题库编号（无 G/P/Y 前缀）",
+    pillTexts.every((t) => !/^[GPY]/.test(t) && !t.includes("·")), pillTexts.join(" | "));
+  ok("已移除「我的刷题范围」开关卡", (await count(".scope-row")) === 0 && (await count(".switch")) === 0);
+  const overviewTitle = (await txt(".card .card__title")) || "";
+  ok("题库简介来源去重（书名只出现一次）",
+    (overviewTitle.match(/指南/g) || []).length === 1, overviewTitle);
+
   const chapBefore = await count(".chapter");
   const titleBefore = await txt(".card__title");
   const pillBefore = await page.$$eval(".bank-pill", (ns) => ns.findIndex((n) => n.classList.contains("is-on")));
@@ -169,6 +188,8 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("切库后章节数与书名变化", chapBefore !== chapAfter && titleBefore !== titleAfter,
     `${chapBefore}章「${titleBefore}」→ ${chapAfter}章「${titleAfter}」`);
   ok("切库后第 2 个 pill 高亮", pillAfter === 1, `pill#${pillAfter}`);
+  const storedScope = await page.evaluate(() => localStorage.getItem("quizapp.banks.v1"));
+  ok("选库同时设为刷题范围（单选，写 localStorage）", storedScope === '["P"]', `${storedScope}`);
   const chapterCount = chapAfter;
   ok("章节行数 = 该库领域数（P=5）", chapterCount === 5, `实际 ${chapterCount}`);
   const typeCardCount = await count(".type-card");
@@ -210,7 +231,7 @@ const ADMIN_PW = `Pass${rnd()}1`;
   await domClick('[data-act="unfav2"]');
   await sleep(400);
   ok("取消收藏后列表为空态", (await count(".fav-card")) === 0 && ((await txt(".empty h3")) || "").includes("还没有收藏"));
-  await go("practice", 400);
+  await enterPracticeFresh(400);
   await domClick("#pStar");
   await sleep(300);
   await page.reload({ waitUntil: "networkidle2" });
@@ -225,6 +246,7 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("考试题量 100", snap0.total === 100, `实际 ${snap0.total}`);
   ok("考试倒计时显示", /⏱\s*\d{2}:\d{2}/.test((await txt("#examTimer")) || ""), `${await txt("#examTimer")}`);
   ok("考试进度显示", /\/ 100/.test((await txt(".exam-progress")) || ""), `${await txt(".exam-progress")}`);
+  ok("已答 0 题时交卷按钮禁用", (await page.$eval("#examSubmit2", (n) => n.disabled)) === true);
   await shot("07-exam");
 
   // 前 6 题故意答错（覆盖客观题错误落库），其余留空
@@ -236,17 +258,31 @@ const ADMIN_PW = `Pass${rnd()}1`;
     await domClick("#examNext");
     await sleep(250);
   }
+  ok("已作答后交卷按钮可用", (await page.$eval("#examSubmit2", (n) => n.disabled)) === false);
   const peek = await page.$eval(".card", (n) => n.innerHTML);
   ok("考试作答中无反馈/无解析", !/verdict|answer-line|analysis/.test(peek));
   ok("考试作答中不出现「正确答案」", !peek.includes("正确答案"));
 
+  // 交卷：先点弹窗「取消」→ 仍在作答；再点「交卷」→ 进入自评 / 出分
   await domClick("#examSubmit2");
+  await sleep(400);
+  ok("点交卷弹出确认弹窗", (await count(".modal")) === 1, `modal=${await count(".modal")}`);
+  await shot("07b-exam-submit-modal");
+  await modalCancel();
+  await sleep(300);
+  ok("取消交卷仍在作答（phase=answer）", (await examSnap()).phase === "answer", `phase=${(await examSnap()).phase}`);
+
+  await domClick("#examSubmit2");
+  await sleep(400);
+  await modalConfirm();
   await sleep(800);
   let snap = await examSnap();
-  const expectJudge = 10 + 3;
-  ok("交卷后进入自评阶段", snap.phase === "judging", `phase=${snap.phase}`);
-  ok(`自评首屏显示 1 / ${expectJudge}`, new RegExp(`1\\s*/\\s*${expectJudge}`).test((await txt(".exam-progress")) || ""),
-    `${await txt(".exam-progress")}`);
+  ok("交卷后进入自评 / 出分", snap.phase === "judging" || snap.phase === "result", `phase=${snap.phase}`);
+  if (snap.phase === "judging") {
+    ok("自评首屏显示 1 / N", /1\s*\/\s*\d+/.test((await txt(".exam-progress")) || ""), `${await txt(".exam-progress")}`);
+  } else {
+    ok("自评首屏显示 1 / N", true, "本次作答无自判题，直接出分");
+  }
 
   // 逐题自评：第 1 题判错，其余判对
   let guard = 0;
@@ -258,16 +294,74 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("自评完成进入出分页", (await examSnap()).phase === "result", `judged=${(await examSnap()).judged}`);
   ok("出分页显示分数", (await count(".exam-score")) === 1, `${await txt(".exam-score")}`);
   ok("出分页含逐题清单 100 行", (await count(".exam-row")) === 100, `实际 ${await count(".exam-row")}`);
-  ok("出分页含分题型得分", (await count(".kpi")) >= 4, `实际 ${await count(".kpi")}`);
+  ok("提前交卷：未作答 94 题标「未作答」", (await count(".exam-row--skip")) === 94, `实际 ${await count(".exam-row--skip")}`);
+  ok("分母 = 已作答题数（文案含未作答不计分）",
+    /未作答\s*94\s*题不计分/.test((await txt(".exam-score__label")) || ""), `${await txt(".exam-score__label")}`);
+  ok("出分页含分题型得分", (await count(".kpi")) >= 1, `实际 ${await count(".kpi")}`);
   const finalScore = (await examSnap()).score;
-  ok("分数与判定一致（0-100）", typeof finalScore === "number" && finalScore >= 0 && finalScore <= 100, `${finalScore}`);
+  ok("分数在 0-100（按已作答计分）", typeof finalScore === "number" && finalScore >= 0 && finalScore <= 100, `${finalScore}`);
   await shot("08-exam-result");
 
-  // 退出作废（新开一场考试，确认退出后回首页）
+  // 退出考试：取消 → 继续作答；确认 → 按已作答提前交卷出分
   await go("practice?mode=exam", 600);
+  ok("考试初始已答 0 题 → 交卷禁用", (await page.$eval("#examSubmit2", (n) => n.disabled)) === true);
+  const eq = await qMeta((await session()).current);
+  await answerWrong(eq);
+  await sleep(300);
   await domClick("#examExit");
-  await sleep(500);
-  ok("考试中途退出作废回到首页", (await page.evaluate(() => location.hash)) === "#/home", await page.evaluate(() => location.hash));
+  await sleep(400);
+  await modalCancel();
+  await sleep(300);
+  ok("取消退出仍在作答（hash 不变）",
+    (await examSnap()).phase === "answer" && (await page.evaluate(() => location.hash)).startsWith("#/practice"),
+    `${(await examSnap()).phase} / ${await page.evaluate(() => location.hash)}`);
+  await domClick("#examExit");
+  await sleep(400);
+  await modalConfirm();
+  await sleep(800);
+  ok("确认退出 → 按已作答提前交卷出分", (await examSnap()).phase === "result", `phase=${(await examSnap()).phase}`);
+
+  /* ---------- [6.5] 练习模式：退出续刷草稿 ---------- */
+  console.log("\n[6.5] 练习退出续刷");
+  await clearDraft();
+  await go("practice", 500);
+  const s0 = await session();
+  const ids0 = s0.ids.join(",");
+  ok("初始进入练习无续刷提示", (await count(".modal")) === 0, `modal=${await count(".modal")}`);
+  ok("练习会话题量 ≤ 100", s0.ids.length > 0 && s0.ids.length <= 100, `${s0.ids.length}`);
+  const q0 = await qMeta(s0.current);
+  await answerWrong(q0);
+  await sleep(200);
+  await commitWrongPractice(q0);
+  await sleep(300);
+  await domClick("#pNext");
+  await sleep(400);
+  ok("练习前进到第 2 题", (await session()).index === 1, `index=${(await session()).index}`);
+
+  await go("home", 400);
+  ok("中途退出后写入本地草稿", (await hasDraft()) === true);
+
+  // 路径 A：继续上次
+  await go("practice", 500);
+  ok("再次进入弹出续刷提示", (await count(".modal")) === 1, `modal=${await count(".modal")}`);
+  ok("提示含进度文案", /第 \d+ 题（共 \d+ 题）/.test((await txt(".modal__msg")) || ""), `${await txt(".modal__msg")}`);
+  await shot("06c-resume-modal");
+  await modalConfirm();
+  await sleep(400);
+  const s1 = await session();
+  ok("继续刷题还原原题序", s1.ids.join(",") === ids0, `${s1.ids.length} 题`);
+  ok("继续刷题还原答题进度", s1.index === 1, `index=${s1.index}`);
+
+  // 路径 B：重新开始
+  await go("home", 400);
+  await go("practice", 500);
+  await modalCancel();
+  await sleep(400);
+  const s2 = await session();
+  ok("重新开始后重新抽题（题序不同）", s2.ids.join(",") !== ids0);
+  ok("重新开始后清除本地草稿", (await hasDraft()) === false);
+  ok("重新开始后从第 1 题开始", s2.index === 0, `index=${s2.index}`);
+  await shot("06b-practice-resume");
 
   /* ---------- [7] 错题本 ---------- */
   console.log("\n[7] 错题本");

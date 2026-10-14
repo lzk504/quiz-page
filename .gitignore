@@ -43,3 +43,24 @@ scripts/_smoke.js
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# AI 工具本地配置
+.claude/settings.local.json
+.cursor/
+.aider*
+.continue/
+.cody/
+
+# 密钥和凭证
+*.pem
+*.key
+credentials.json
+.npmrc
+.aws/
+.ssh/
+
+# 非项目相关
+AGENT.md
+setting.json
+.agentignore
+.agents/

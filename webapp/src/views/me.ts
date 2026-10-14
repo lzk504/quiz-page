@@ -4,7 +4,7 @@
  * 统计口径：一律基于「全部已加载库」（getLoadedQuestions），否则跨库数据会被漏算。
  */
 
-import { getBanks, getLoadedQuestions, getSelectedBanks, bankQuestionCount, getBank } from "../state";
+import { getBanks, getLoadedQuestions, getSelectedBanks, bankQuestionCount, getBank, bankShortName } from "../state";
 import { getStore } from "../storage";
 import { computeStats } from "../stats";
 import { streakDays, recentAnswered, weekSummary, dailyGoal, favoriteQuestions } from "../goal";
@@ -16,11 +16,6 @@ import { toast } from "../ui";
 import type { View } from "../types";
 
 const ISSUES_URL = "https://github.com/lzk504/quiz-page/issues";
-
-function shortTitle(title: string): string {
-  const m = title.match(/《(.+?)》/);
-  return m ? m[1] : title;
-}
 
 function bankRows(): string {
   const records = getStore().records ?? {};
@@ -37,7 +32,7 @@ function bankRows(): string {
       const mastery = answered ? pct(correct, answered) : 0;
       const inScope = getSelectedBanks().includes(b.id);
       return `<button class="list-row" data-bank="${esc(b.id)}" style="padding-left:0;padding-right:0">
-        <span class="list-row__icon">${esc(b.id)}</span>
+        <span class="list-row__icon">${esc(bankShortName(b.id))}</span>
         <span class="list-row__body">
           <span class="list-row__label">${esc(b.title)}</span>
           <span class="list-row__desc">
@@ -63,7 +58,7 @@ const view: View = {
     const recent = recentAnswered(store, 7);
     const favCount = favoriteQuestions(all, store).length;
     const prev = Object.keys(store.records ?? {}).length;
-    const payLoad = "备考：2026 教师资格证（笔试）";
+    const payLoad = "备考：一级教师资格证";
     const examDate = getExamDate();
 
     const weekText = week.count

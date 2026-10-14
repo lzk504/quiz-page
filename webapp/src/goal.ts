@@ -294,6 +294,8 @@ export interface ExamResultRow {
   q: Question;
   userAnswer: unknown;
   correct: boolean;
+  /** 未作答（提前交卷 / 超时）：不计分、不进自评、不进错题本 */
+  skipped?: boolean;
 }
 
 /** 分题型得分（按蓝图顺序） */

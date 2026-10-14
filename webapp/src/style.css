@@ -667,6 +667,38 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .toast--ok  { background: rgba(23, 122, 70, .95); }
 .toast--bad { background: rgba(192, 60, 60, .95); }
 
+/* ---------- 通用确认弹窗 ---------- */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(24, 20, 40, .45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: modal-fade var(--dur-1) var(--ease);
+}
+.modal {
+  width: 100%; max-width: 340px;
+  background: var(--card); border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 20px 48px rgba(30, 20, 70, .25);
+  animation: modal-pop var(--dur-2) var(--ease);
+}
+.modal__title { margin: 0; font-size: 16px; font-weight: 700; }
+.modal__msg {
+  margin: 8px 0 16px; font-size: 14px; line-height: 1.6;
+  color: var(--text-2); white-space: pre-line;
+}
+.modal__btns { display: flex; gap: 10px; }
+.modal__btns .btn { flex: 1; }
+.btn--danger-solid {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, #e05a5a, var(--bad));
+}
+.btn--danger-solid:active { filter: brightness(.94); }
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-pop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+
 /* ---------- 无障碍 / 减少动效 ---------- */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
@@ -1371,28 +1403,6 @@ body:has(.app--nobar) .topbar { display: none; }
 .type-card__label { font-size: 13.5px; font-weight: 650; }
 .type-card__count { display: block; font-size: 11.5px; color: var(--primary); margin-top: 3px; font-variant-numeric: tabular-nums; }
 .type-card__desc { display: block; font-size: 11px; color: var(--text-3); margin-top: 3px; line-height: 1.5; }
-
-.scope-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 11px 0; border-bottom: 1px solid var(--line-2);
-}
-.scope-row:last-child { border-bottom: none; padding-bottom: 0; }
-.scope-row__text { flex: 1; min-width: 0; }
-.scope-row__text b { font-size: 14px; font-weight: 600; display: block; }
-.scope-row__text span { font-size: 12px; color: var(--text-3); line-height: 1.5; }
-.switch {
-  flex: none; width: 46px; height: 27px; padding: 0; cursor: pointer;
-  border: none; border-radius: var(--r-pill); background: var(--line);
-  position: relative; transition: background var(--dur-1) var(--ease);
-}
-.switch::after {
-  content: ""; position: absolute; top: 3px; left: 3px;
-  width: 21px; height: 21px; border-radius: 50%; background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
-  transition: transform var(--dur-2) var(--ease);
-}
-.switch.is-on { background: var(--primary); }
-.switch.is-on::after { transform: translateX(19px); }
 
 /* ---------- 错题本 ---------- */
 .wb-kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }

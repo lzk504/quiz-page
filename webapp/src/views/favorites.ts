@@ -2,7 +2,7 @@
  * 我的收藏（v6 新建）：列表不展示答案（避免“看答案背题”），点「再做一遍」进入单题练习。
  */
 
-import { getLoadedQuestions, getBanks } from "../state";
+import { getLoadedQuestions, getBanks, bankShortName } from "../state";
 import { getStore, toggleFavorite } from "../storage";
 import { favoriteQuestions } from "../goal";
 import { esc, fmtTime } from "../utils";
@@ -34,7 +34,7 @@ const view: View = {
           ${banks.map((b) => {
             const n = all.filter((it) => it.q.id.startsWith(b.id + "-")).length;
             return `<button class="chip${favBank === b.id ? " is-on" : ""}" data-bank="${esc(b.id)}">
-              ${esc(b.id)}<span class="chip__n">${n}</span></button>`;
+              ${esc(bankShortName(b.id))}<span class="chip__n">${n}</span></button>`;
           }).join("")}
         </div>
         <div class="fav-list" id="favList" style="margin-top:12px"></div>

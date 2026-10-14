@@ -1,20 +1,22 @@
 /**
- * 题库 tab（v6 新建）：选库 → 该库总览 → 练习/考试模式 → 章节目录（领域）→ 题型说明 → 刷题范围
+ * 题库 tab（v6 新建 / v6.1 改造）：选库 → 该库总览 → 练习/考试模式 → 章节目录（领域）→ 题型说明
  *
  * 约定：
- *  - tab 内选库是**单选**（模块级 activeBank），与首页/「我的」维护的 selectedBanks（刷题范围）互不联动；
+ *  - **选库是唯一入口**：点顶部 pill 既切换浏览的库，也把该库设为刷题范围（selectedBanks 单库），
+ *    章节、简介、题型卡随之联动刷新；v6.1 起取消了独立的「我的刷题范围」开关卡（不再支持多库合并刷题）；
  *  - 章节 = 领域（单级，数据只有一层）；
  *  - 点章节行始终进入**练习模式**（考试模式必须走顶部「开始模拟考试」）。
  */
 
 import {
-  getBanks, getBank, isBankLoaded, isBankFailed, ensureBank, bankQuestionCount,
+  getBanks, getBank, isBankLoaded, isBankFailed, ensureBank,
   getSelectedBanks, setSelectedBanks, getLoadedQuestions, questionDomainLabel, typeLabels,
+  bankShortName, bankShortTitle,
 } from "../state";
 import { getStore } from "../storage";
 import { esc, pct } from "../utils";
 import { navigate } from "../router";
-import { bar, emptyState, toast } from "../ui";
+import { bar, emptyState } from "../ui";
 import type { BankMeta, Question, View } from "../types";
 
 /* ---------------- 模块级 UI 状态（跨 render 保留） ---------------- */
@@ -70,17 +72,19 @@ function chapterChip(st: ChapterStat): string {
 /* ---------------- 渲染片段 ---------------- */
 
 function bankPills(): string {
-  const current = getSelectedBanks();
   return `<div class="bank-pills">${getBanks().map((b) => `
     <button class="bank-pill${b.id === activeBank ? " is-on" : ""}" data-bank="${esc(b.id)}">
-      <span class="bank-pill__dot"></span>${esc(b.id)} · ${esc(shortTitle(b.title))}
-      ${current.includes(b.id) ? `<span class="tag" style="font-size:10px;padding:1px 6px">范围内</span>` : ""}
+      <span class="bank-pill__dot"></span>${esc(bankShortName(b.id))}
     </button>`).join("")}</div>`;
 }
 
-function shortTitle(title: string): string {
-  const m = title.match(/《(.+?)》/);
-  return m ? m[1] : title;
+/** 简介卡来源文案：去掉与书名完全重复的尾部片段（如「教育部 2012年9月颁布《3-6岁…指南》」→「教育部 2012年9月颁布」） */
+function sourceLine(bank: BankMeta): string {
+  const src = (bank.source ?? "").trim();
+  if (!src) return "";
+  const m = src.match(/^(.*?)[，,、·\s]*《(.+?)》\s*$/);
+  if (m && m[1] && bankShortTitle(bank.title) === m[2]) return m[1].trim();
+  return src;
 }
 
 function overviewCard(bank: BankMeta, questions: Question[]): string {
@@ -89,10 +93,11 @@ function overviewCard(bank: BankMeta, questions: Question[]): string {
   const correct = questions.filter((q) => records[q.id]?.lastCorrect).length;
   const total = questions.length;
   const target = Object.values(bank.typeCounts ?? {}).reduce((a, c) => a + c, 0) || total;
+  const src = sourceLine(bank);
 
   return `
     <section class="card">
-      <h2 class="card__title">${esc(bank.title)}${bank.source ? `<small>${esc(bank.source)}</small>` : ""}</h2>
+      <h2 class="card__title">${esc(bank.title)}${src ? `<small>${esc(src)}</small>` : ""}</h2>
       <div class="kpi-row">
         <div class="kpi"><b>${total || target}</b><span>题库题量</span></div>
         <div class="kpi"><b>${answered}</b><span>已练习题</span></div>
@@ -178,24 +183,6 @@ function typeCardText(bank: BankMeta, questions: Question[]): string {
   }).join("")}</div>`;
 }
 
-function scopeCard(): string {
-  const current = new Set(getSelectedBanks());
-  return `
-    <section class="card">
-      <h2 class="card__title">我的刷题范围 <small>可多选，影响「快速刷题 / 考试」的题池</small></h2>
-      ${getBanks().map((b) => `
-        <div class="scope-row">
-          <span class="scope-row__text">
-            <b>${esc(b.title)}</b>
-            <span>${isBankLoaded(b.id) ? `已加载 ${bankQuestionCount(b.id)} 题` : "尚未加载"}</span>
-          </span>
-          <button class="switch${current.has(b.id) ? " is-on" : ""}" data-scope="${esc(b.id)}"
-            role="switch" aria-checked="${current.has(b.id)}" aria-label="把 ${esc(b.title)} 加入刷题范围"></button>
-        </div>`).join("")}
-      <p class="about" style="margin:10px 0 0">至少保留一个题库；未勾选的库不会被抽题，但历史记录仍会保留。</p>
-    </section>`;
-}
-
 /* ---------------- 视图 ---------------- */
 
 const view: View = {
@@ -212,9 +199,12 @@ const view: View = {
 
     const bank = getBank(activeBank)!;
 
+    // 单选语义（v6.1）：pill 选中的库即为刷题范围；深链 / 首页科目行进入时同步
+    if (getSelectedBanks()[0] !== activeBank) await setSelectedBanks([activeBank]);
+
     // 按需加载选中的库（首次进入某库时拉取题文件）
     if (!isBankLoaded(activeBank) && !isBankFailed(activeBank)) {
-      root.innerHTML = `<div class="loading"><div class="loading__spinner"></div><p>正在加载《${esc(shortTitle(bank.title))}》题库…</p></div>`;
+      root.innerHTML = `<div class="loading"><div class="loading__spinner"></div><p>正在加载《${esc(bankShortTitle(bank.title))}》题库…</p></div>`;
       const bs = await ensureBank(activeBank);
       if (!bs) {
         root.innerHTML = emptyState({
@@ -268,8 +258,6 @@ const view: View = {
         <h2 class="card__title">题型说明 <small>按题型专项练习</small></h2>
         ${typeCardText(bank, questions)}
       </section>
-
-      ${scopeCard()}
     `;
 
     /* ---------- 事件 ---------- */
@@ -281,7 +269,8 @@ const view: View = {
         if (!id || id === activeBank) return;
         activeBank = id;
         query = "";
-        void view.render(root);
+        // 选库 = 选刷题范围（单选），完成后整页重绘联动章节 / 简介 / 题型
+        void setSelectedBanks([id]).then(() => view.render(root));
       });
     });
 
@@ -316,26 +305,6 @@ const view: View = {
       btn.addEventListener("click", () => {
         const type = btn.dataset.type;
         if (type) navigate("practice", { type, banks: activeBank });
-      });
-    });
-
-    root.querySelectorAll<HTMLButtonElement>(".switch").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.dataset.scope;
-        if (!id) return;
-        const cur = new Set(getSelectedBanks());
-        if (cur.has(id)) {
-          if (cur.size === 1) { toast("至少保留一个题库", "info"); return; }
-          cur.delete(id);
-        } else {
-          cur.add(id);
-          if (!isBankLoaded(id) && !isBankFailed(id)) {
-            btn.disabled = true;
-            await ensureBank(id);
-          }
-        }
-        await setSelectedBanks([...cur]);
-        void view.render(root);
       });
     });
 
