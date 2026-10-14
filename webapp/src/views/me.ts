@@ -8,7 +8,6 @@ import { getBanks, getLoadedQuestions, getSelectedBanks, bankQuestionCount, getB
 import { getStore } from "../storage";
 import { computeStats } from "../stats";
 import { streakDays, recentAnswered, weekSummary, dailyGoal, favoriteQuestions } from "../goal";
-import { getExamDate } from "../local-prefs";
 import { getCurrentUser } from "../auth";
 import { esc, pct } from "../utils";
 import { navigate } from "../router";
@@ -59,7 +58,6 @@ const view: View = {
     const favCount = favoriteQuestions(all, store).length;
     const prev = Object.keys(store.records ?? {}).length;
     const payLoad = "备考：一级教师资格证";
-    const examDate = getExamDate();
 
     const weekText = week.count
       ? `本周已刷 <b>${week.count}</b> 题，正确率 <b>${week.rate}%</b>${
@@ -71,7 +69,7 @@ const view: View = {
       <section class="profile-hero">
         <div class="profile-hero__top">
           <h1 class="profile-hero__title">个人中心</h1>
-          <button class="profile-hero__gear" id="meSettings" title="学习设置">⚙</button>
+          <button class="profile-hero__gear" id="meSettings" title="功能设置">⚙</button>
         </div>
         <div class="profile-hero__me">
           <div class="profile-hero__avatar">${esc(username.slice(0, 1))}</div>
@@ -124,10 +122,9 @@ const view: View = {
         <button class="list-row" id="meSettingsRow">
           <span class="list-row__icon list-row__icon--green">⚙</span>
           <span class="list-row__body">
-            <span class="list-row__label">学习设置</span>
-            <span class="list-row__desc">考试日期、数据导入导出、邀请码</span>
+            <span class="list-row__label">功能设置</span>
+            <span class="list-row__desc">昵称、数据导入导出、邀请码</span>
           </span>
-          <span class="list-row__value">${examDate ? esc(examDate) : "未设置"}</span>
           <span class="list-row__arrow">›</span>
         </button>
       </section>

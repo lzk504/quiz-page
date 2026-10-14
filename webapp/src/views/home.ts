@@ -12,12 +12,12 @@ import {
   getBanks, getLoadedQuestions, getQuestion, bankQuestionCount, isBankLoaded, ensureBank,
   questionDomainLabel, typeLabels, getBank, bankShortTitle, bankShortName,
 } from "../state";
-import { getStore } from "../storage";
+import { getStore, getNickname } from "../storage";
 import {
-  dailyGoal, streakDays, todayRecommended, daysUntil, DAILY_GOAL,
+  dailyGoal, streakDays, todayRecommended, DAILY_GOAL,
   type RecGroup, WRONG_RED,
 } from "../goal";
-import { getExamDate, getLastScope, type LastScope } from "../local-prefs";
+import { getLastScope, type LastScope } from "../local-prefs";
 import { getCurrentUser } from "../auth";
 import { esc, pct, APP_NAME, fmtDate } from "../utils";
 import { navigate } from "../router";
@@ -208,17 +208,11 @@ const view: View = {
     const store = getStore();
     const user = getCurrentUser();
     const username = user?.username ?? "同学";
+    /** 昵称优先，未设置回退用户名 */
+    const displayName = getNickname() || username;
     const goal = dailyGoal(store);
     const stats = bankStats();
     const recs = todayRecommended(getLoadedQuestions(), store);
-
-    const examDate = getExamDate();
-    const left = daysUntil(examDate);
-    const examRight = left === null
-      ? `设置考试日期 ›<small>暂未设置</small>`
-      : left >= 0
-        ? `${left} 天后开考<small>${esc(examDate!)}</small>`
-        : `已过考试日<small>${esc(examDate!)}</small>`;
 
     const bankTitles = banks.map((b) => bankShortTitle(b.title));
     const totalTarget = banks.reduce(
@@ -227,12 +221,12 @@ const view: View = {
     root.innerHTML = `
       <section class="hero hero--home">
         <div class="greet">
-          <div class="greet__avatar">${esc(username.slice(0, 1))}</div>
+          <div class="greet__avatar">${esc(displayName.slice(0, 1))}</div>
           <div class="greet__text">
             <h1 class="hero__title greet__name">${esc(APP_NAME)}</h1>
-            <p class="greet__hello">${greeting()}，${esc(username)} · 今天也要稳稳拿分</p>
+            <p class="greet__hello">${greeting()}，${esc(displayName)} · 今天也要稳稳拿分</p>
           </div>
-          <button class="greet__gear" id="goSettings" title="学习设置">⚙</button>
+          <button class="greet__gear" id="goSettings" title="功能设置">⚙</button>
         </div>
 
         <div class="exam-banner">
@@ -240,7 +234,6 @@ const view: View = {
             <b class="exam-banner__title">备考科目 · 学前教育考点精编</b>
             <span class="exam-banner__sub">${esc(bankTitles.join(" / "))} · 共 ${totalTarget || 0} 题</span>
           </div>
-          <button class="exam-banner__right" id="goExamDate">${examRight}</button>
         </div>
 
         <button class="goal" id="goDaily">
@@ -269,7 +262,6 @@ const view: View = {
     const startDefault = (): void => navigate("practice", { fresh: "1" });
 
     root.querySelector("#goSettings")?.addEventListener("click", () => navigate("settings"));
-    root.querySelector("#goExamDate")?.addEventListener("click", () => navigate("settings"));
     root.querySelector("#goDaily")?.addEventListener("click", () => navigate("practice", { mode: "daily" }));
 
     root.querySelector("#qStart")?.addEventListener("click", startDefault);

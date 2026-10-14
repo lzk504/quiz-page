@@ -1175,11 +1175,6 @@ body:has(.app--nobar) .topbar { display: none; }
 }
 .exam-banner__title { font-size: 13.5px; font-weight: 650; }
 .exam-banner__sub { display: block; font-size: 11.5px; opacity: .8; margin-top: 2px; }
-.exam-banner__right {
-  flex: none; text-align: right; font-size: 13px; font-weight: 700;
-  white-space: nowrap; cursor: pointer; background: none; border: none; color: #fff; font-family: inherit;
-}
-.exam-banner__right small { display: block; font-size: 10.5px; font-weight: 400; opacity: .78; }
 
 /* ---------- 首页：今日目标 ---------- */
 .goal {

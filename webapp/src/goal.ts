@@ -32,17 +32,6 @@ export function dayStart(ts: number = Date.now()): number {
 
 export const isToday = (ts?: number | null): boolean => !!ts && dayStart(ts) === dayStart();
 
-/** dateStr（YYYY-MM-DD）距今天的天数；无效或已过期返回 null */
-export function daysUntil(dateStr: string | null | undefined, now: number = Date.now()): number | null {
-  if (!dateStr) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
-  if (!m) return null;
-  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  target.setHours(0, 0, 0, 0);
-  if (Number.isNaN(target.getTime())) return null;
-  return Math.round((target.getTime() - dayStart(now)) / 86400000);
-}
-
 /* ---------------- 今日目标 ---------------- */
 
 export interface DailyGoal {

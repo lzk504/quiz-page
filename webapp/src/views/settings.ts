@@ -1,15 +1,13 @@
-/** 设置页：账号 / 数据管理（导入导出清空） / 管理员（邀请码 / 全量备份） / 关于 */
+/** 功能设置页：账号（昵称） / 数据管理（导入导出清空） / 管理员（邀请码 / 全量备份） / 关于 */
 
 import { getMeta, getQuestions, getBanks, on } from "../state";
 import {
   exportJson, validateImport, applyImport, clearAll, getStore, isPersistent, getSyncStatus,
-  flushStore, SCHEMA_VERSION,
+  flushStore, getNickname, setNickname, NICKNAME_MAX, SCHEMA_VERSION,
 } from "../storage";
 import { getCurrentUser, logout, apiFetch } from "../auth";
 import { stopSync } from "../sync";
 import { computeStats } from "../stats";
-import { getExamDate, setExamDate } from "../local-prefs";
-import { todayAnswered, DAILY_GOAL, daysUntil } from "../goal";
 import { esc, fmtDate, fmtTime, download } from "../utils";
 import { toast } from "../ui";
 import { navigate } from "../router";
@@ -46,31 +44,8 @@ const view: View = {
     root.innerHTML = `
       <div class="page-head">
         <button class="page-head__back" id="setBack" title="返回">‹</button>
-        <h1 class="page-head__title">学习设置</h1>
+        <h1 class="page-head__title">功能设置</h1>
       </div>
-
-      <section class="card">
-        <h2 class="card__title">备考设置 <small>仅保存在本机</small></h2>
-        <div class="scope-row">
-          <span class="scope-row__text">
-            <b>考试日期</b>
-            <span>${(() => {
-              const d = getExamDate();
-              if (!d) return "设置后首页会显示开考倒计时";
-              const left = daysUntil(d);
-              return left === null ? "已设置" : left >= 0 ? `距开考还有 ${left} 天` : "考试日期已过";
-            })()}</span>
-          </span>
-          <input class="field__input" id="setExamDate" type="date" style="width:auto;flex:none"
-            value="${esc(getExamDate() ?? "")}">
-        </div>
-        <div class="scope-row">
-          <span class="scope-row__text">
-            <b>今日目标</b>
-            <span>每天 ${DAILY_GOAL} 题，今日已刷 ${todayAnswered(store)} 题</span>
-          </span>
-        </div>
-      </section>
 
       <section class="card">
         <h2 class="card__title">账号</h2>
@@ -78,6 +53,15 @@ const view: View = {
           <p>· 当前用户：<b>${esc(user?.username ?? "—")}</b>　·　角色：<b>${esc(ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? "—")}</b></p>
           <p>· 注册时间：${esc(fmtTime(user?.createdAt))}</p>
           <p>· 数据存储：云端（Cloudflare D1），多设备登录自动同步</p>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__text">
+            <b>昵称</b>
+            <span>显示在首页问候语中，未设置时显示用户名；最长 ${NICKNAME_MAX} 个字符。</span>
+          </div>
+          <input class="field__input" id="setNickname" type="text" maxlength="${NICKNAME_MAX}"
+            placeholder="未设置" value="${esc(getNickname())}" style="width:120px;flex:none">
+          <button class="btn btn--sm btn--primary" id="btnSaveNick">保存</button>
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="btn btn--sm btn--danger" id="btnLogout">退出登录</button>
@@ -151,21 +135,19 @@ const view: View = {
           <p>共 ${banks.length} 个题库（已加载 ${questions.length} 题）：${banks.map((b) => esc(b.title)).join("　")}</p>
           <p>四个标签页：首页（今日目标 / 考试模式 / 今日推荐复习）、题库（章节目录与题型专项）、错题本、我的（统计报告与设置）。</p>
           <p>前端 TypeScript + Vite 构建，后端 Cloudflare Workers + D1；题库以 JSON 存放于 <code>data/banks.json</code> 与 <code>data/bank-*.json</code>。</p>
-          <p>数据版本 v${SCHEMA_VERSION}（含收藏）　·　共 ${banks.length} 库 / 每库 1000 题</p>
+          <p>数据版本 v${SCHEMA_VERSION}（含收藏与昵称）　·　共 ${banks.length} 库 / 每库 1000 题</p>
         </div>
       </section>
     `;
 
-    /* ---------- 备考设置 ---------- */
+    /* ---------- 账号 ---------- */
     root.querySelector("#setBack")?.addEventListener("click", () => navigate("me"));
-    root.querySelector<HTMLInputElement>("#setExamDate")?.addEventListener("change", (e) => {
-      const v = (e.target as HTMLInputElement).value || null;
-      setExamDate(v);
-      toast(v ? `考试日期已设为 ${v}` : "已清除考试日期", "ok");
+    root.querySelector("#btnSaveNick")?.addEventListener("click", () => {
+      const input = root.querySelector<HTMLInputElement>("#setNickname");
+      const nick = setNickname(input?.value ?? "");
+      toast(nick ? `昵称已保存：${nick}` : "已清除昵称，将显示用户名", "ok");
       void view.render(root);
     });
-
-    /* ---------- 账号 ---------- */
     root.querySelector("#btnLogout")?.addEventListener("click", () => {
       if (!window.confirm("确定退出登录吗？退出后需重新登录才能查看答题数据。")) return;
       // 先冲刷待发数据：作答后的上云是 800ms 防抖的，直接 logout 会清掉 token

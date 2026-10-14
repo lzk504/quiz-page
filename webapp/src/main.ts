@@ -4,7 +4,8 @@ import "./style.css";
 
 import { loadBanks, on, getMeta, getQuestions, getBanks } from "./state";
 import { initStorage, getStore, isPersistent, setValidIds, flushStore,
-  exportJson, validateImport, applyImport, clearAll, toggleFavorite, isFavorite } from "./storage";
+  exportJson, validateImport, applyImport, clearAll, toggleFavorite, isFavorite,
+  getNickname, setNickname } from "./storage";
 import { initAuth, isLoggedIn, fetchMe, clearToken } from "./auth";
 import { startSync } from "./sync";
 import { register, startRouter, type Route } from "./router";
@@ -33,6 +34,8 @@ import login from "./views/login";
     // 调试用：收藏读写（视图外的快捷入口，供 e2e 构造数据）
     favorites: () => ({ ...getStore().favorites }),
     isFavorite, toggleFavorite,
+    // 调试用：昵称读写（e2e 断言用）
+    nickname: getNickname, setNickname,
   },
   practice: { session: debugSession, exam: debugExam },
   /** 应用名（e2e 断言标题口径用） */

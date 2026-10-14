@@ -62,13 +62,20 @@ export interface FavoriteEntry {
   addedAt: number;
 }
 
-/** 刷题数据（与后端 store schema 同形：v4；后端纯透传，不做校验） */
+/** 个人资料（v5 新增）：昵称等随云端同步的个人设置 */
+export interface UserProfile {
+  nickname?: string;
+}
+
+/** 刷题数据（与后端 store schema 同形：v5；后端纯透传，不做校验） */
 export interface QuizStore {
   version: number;
   records: Record<string, RecordEntry>;
   wrongbook: Record<string, WrongbookEntry>;
   /** 我的收藏：qid → { addedAt } */
   favorites: Record<string, FavoriteEntry>;
+  /** 个人资料（昵称等） */
+  profile: UserProfile;
   updatedAt: number;
 }
 

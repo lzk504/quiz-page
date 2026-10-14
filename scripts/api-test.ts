@@ -174,7 +174,7 @@ ok("状态 200", r.status === 200);
 ok("store 为 null", r.data?.store === null && r.data?.updatedAt === null);
 
 console.log("\n=== [10] PUT store 写入（应 200, 返回 updatedAt）===");
-r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 4, records: { "G-S001": { lastAt: 1000 } }, wrongbook: {}, favorites: { "G-S001": { addedAt: 1000 } }, updatedAt: 1000 }, baseUpdatedAt: 0 } });
+r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 5, records: { "G-S001": { lastAt: 1000 } }, wrongbook: {}, favorites: { "G-S001": { addedAt: 1000 } }, profile: { nickname: "小老师" }, updatedAt: 1000 }, baseUpdatedAt: 0 } });
 ok("状态 200", r.status === 200, `实际 ${r.status}`);
 ok("返回 updatedAt", typeof r.data?.updatedAt === "number");
 
@@ -183,8 +183,9 @@ r = await call("GET", "/api/store", { token: adminToken });
 ok("状态 200", r.status === 200);
 ok("store 非空", !!r.data?.store);
 ok("records.G-S001 存在", !!r.data?.store?.records?.["G-S001"]);
-ok("store 原样透传（v4 三段式 id 不被改写）", r.data?.store?.version === 4 && "G-S001" in (r.data?.store?.records ?? {}));
+ok("store 原样透传（v5 三段式 id 不被改写）", r.data?.store?.version === 5 && "G-S001" in (r.data?.store?.records ?? {}));
 ok("favorites 原样透传（v4 新增字段）", !!r.data?.store?.favorites?.["G-S001"]);
+ok("profile.nickname 原样透传（v5 新增字段）", r.data?.store?.profile?.nickname === "小老师");
 
 console.log("\n=== [12] PUT 乐观锁冲突（baseUpdatedAt 旧，应 409）===");
 r = await call("PUT", "/api/store", { token: adminToken, body: { store: { version: 4, records: {}, wrongbook: {}, favorites: {}, updatedAt: 1 }, baseUpdatedAt: 1 } });

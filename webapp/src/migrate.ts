@@ -6,6 +6,7 @@
  * v2 → v3：题库拆为三个库，旧 68 题并入指南库 G，id 加库前缀并统一三位序号
  *          （S01 → G-S001）。编号不变（跳号不复活），只重映射 key，不动作答数据。
  * v3 → v4：新增 favorites（我的收藏），表为空；records / wrongbook 原样保留。
+ * v4 → v5：新增 profile（个人资料：昵称等），缺省补空对象。
  *
  * 迁移规则：
  *  - records / wrongbook 的 key 按映射表重命名，统计口径（attempts/lastCorrect）原样保留
@@ -67,6 +68,7 @@ export interface LegacyStore {
   records?: Record<string, LegacyEntry>;
   wrongbook?: Record<string, LegacyEntry>;
   favorites?: Record<string, LegacyEntry>;
+  profile?: { nickname?: string };
   recite?: Record<string, unknown>;
   updatedAt?: number;
 }
@@ -77,7 +79,7 @@ export interface LegacyStore {
  */
 export function migrateV1toV2(old: LegacyStore | null | undefined, validIds: Set<string> | null = null): QuizStore {
   const keep = (nid: string): boolean => !validIds || validIds.has(nid);
-  const out: QuizStore = { version: 2, records: {}, wrongbook: {}, favorites: {}, updatedAt: old?.updatedAt ?? 0 };
+  const out: QuizStore = { version: 2, records: {}, wrongbook: {}, favorites: {}, profile: {}, updatedAt: old?.updatedAt ?? 0 };
 
   for (const [qid, rec] of Object.entries(old?.records ?? {})) {
     const nid = ID_MIGRATION[qid] ?? qid;
@@ -119,7 +121,7 @@ export function migrateV1toV2(old: LegacyStore | null | undefined, validIds: Set
  */
 export function migrateV2toV3(old: QuizStore | null | undefined, validIds: Set<string> | null = null): QuizStore {
   const keep = (nid: string): boolean => !validIds || validIds.has(nid);
-  const out: QuizStore = { version: 3, records: {}, wrongbook: {}, favorites: {}, updatedAt: old?.updatedAt ?? 0 };
+  const out: QuizStore = { version: 3, records: {}, wrongbook: {}, favorites: {}, profile: {}, updatedAt: old?.updatedAt ?? 0 };
   const src = old as unknown as LegacyStore | null | undefined;
 
   for (const [qid, rec] of Object.entries(src?.records ?? {})) {
@@ -172,6 +174,26 @@ export function migrateV3toV4(old: QuizStore | null | undefined): QuizStore {
     records: (src.records ?? {}) as QuizStore["records"],
     wrongbook: (src.wrongbook ?? {}) as QuizStore["wrongbook"],
     favorites,
+    profile: {},
+    updatedAt: Number(src.updatedAt) || 0,
+  };
+}
+
+/**
+ * v4 → v5：新增 profile（个人资料：昵称等）。
+ * 只补空对象；已有的 profile（如跨端回灌 v5）原样透传。
+ */
+export function migrateV4toV5(old: QuizStore | null | undefined): QuizStore {
+  const src = (old ?? {}) as Partial<QuizStore>;
+  const profile: QuizStore["profile"] = {};
+  const nick = src.profile?.nickname;
+  if (typeof nick === "string" && nick.trim()) profile.nickname = nick.trim();
+  return {
+    version: 5,
+    records: (src.records ?? {}) as QuizStore["records"],
+    wrongbook: (src.wrongbook ?? {}) as QuizStore["wrongbook"],
+    favorites: (src.favorites ?? {}) as QuizStore["favorites"],
+    profile,
     updatedAt: Number(src.updatedAt) || 0,
   };
 }

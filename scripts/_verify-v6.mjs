@@ -9,7 +9,7 @@
  * 覆盖：标题口径 / 4 tab 壳层 / 首页（今日目标·快捷入口·备考科目·推荐复习）/
  *       题库 tab（单选选库=刷题范围·章节联动·去编号·简介去重）/ 练习（收藏星标·退出续刷草稿）/
  *       考试模式（倒计时·零反馈·弹窗交卷·仅按已作答计分·弹窗退出出分）/
- *       错题本（三数字·题型 chips·答案对照·重做）/ 收藏页（不展示答案）/ 设置（考试日期）/
+ *       错题本（三数字·题型 chips·答案对照·重做）/ 收藏页（不展示答案）/ 设置（昵称）/
  *       v3 备份迁移 / 响应式不溢出 / 控制台无错误。
  */
 import path from "node:path";
@@ -319,7 +319,16 @@ const ADMIN_PW = `Pass${rnd()}1`;
   await sleep(400);
   await modalConfirm();
   await sleep(800);
-  ok("确认退出 → 按已作答提前交卷出分", (await examSnap()).phase === "result", `phase=${(await examSnap()).phase}`);
+  // 若已作答题恰好含填空/简答，会先进入统一自评，判完后才出分
+  let exitPhase = (await examSnap()).phase;
+  let exitGuard = 0;
+  while (exitPhase === "judging" && exitGuard < 10) {
+    await domClick("#ejOk");
+    await sleep(250);
+    exitPhase = (await examSnap()).phase;
+    exitGuard++;
+  }
+  ok("确认退出 → 按已作答提前交卷出分", exitPhase === "result", `phase=${exitPhase}`);
 
   /* ---------- [6.5] 练习模式：退出续刷草稿 ---------- */
   console.log("\n[6.5] 练习退出续刷");
@@ -427,18 +436,29 @@ const ADMIN_PW = `Pass${rnd()}1`;
 
   await go("settings", 500);
   ok("设置页有返回箭头", (await count(".page-head__back")) === 1);
-  ok("备考设置含考试日期输入", (await count("#setExamDate")) === 1);
-  await page.$eval("#setExamDate", (n) => { n.value = "2026-12-31"; });
-  await page.$eval("#setExamDate", (n) => n.dispatchEvent(new Event("change", { bubbles: true })));
+  ok("设置页标题为「功能设置」", ((await txt(".page-head__title")) || "").trim() === "功能设置", `${await txt(".page-head__title")}`);
+  const settingsText = (await page.$eval("body", (n) => n.textContent)) || "";
+  ok("备考设置盒子已移除", !settingsText.includes("备考设置") && (await count("#setExamDate")) === 0);
+
+  // 昵称：设置 → 保存 → 首页问候语生效 → 刷新后仍在（云端持久化）
+  ok("昵称输入框存在", (await count("#setNickname")) === 1);
+  await page.$eval("#setNickname", (n) => { n.value = "小老师"; });
+  await domClick("#btnSaveNick");
   await sleep(600);
-  const storedDate = await page.evaluate(() => localStorage.getItem("quizapp.examDate.v1"));
-  ok("考试日期写入本机偏好", storedDate === "2026-12-31", `${storedDate}`);
-  await go("home", 500);
-  ok("首页倒计时同步考试日期", /天后开考/.test((await txt(".exam-banner__right")) || ""), `${await txt(".exam-banner__right")}`);
+  const nick1 = await page.evaluate(() => window.__quiz.storage.nickname());
+  ok("昵称已写入 store", nick1 === "小老师", `${nick1}`);
   await shot("13-settings");
+  await sleep(1200);   // 等 800ms 防抖 PUT 上云
+  await go("home", 500);
+  ok("首页问候语使用昵称", ((await txt(".greet__hello")) || "").includes("小老师"), `${await txt(".greet__hello")}`);
+  await page.reload({ waitUntil: "networkidle2" });
+  await sleep(800);
+  const nick2 = await page.evaluate(() => window.__quiz.storage.nickname());
+  ok("昵称刷新后仍在（云端同步）", nick2 === "小老师", `${nick2}`);
+  ok("刷新后问候语仍用昵称", ((await txt(".greet__hello")) || "").includes("小老师"), `${await txt(".greet__hello")}`);
 
   /* ---------- [9] v3 备份迁移 ---------- */
-  console.log("\n[9] 数据迁移 v3 → v4");
+  console.log("\n[9] 数据迁移 v3 → v5");
   const legacy = {
     version: 3,
     records: { "G-S001": { attempts: 2, wrongAttempts: 1, lastCorrect: false, firstAt: 1, lastAt: 2 } },
@@ -447,11 +467,12 @@ const ADMIN_PW = `Pass${rnd()}1`;
   };
   const check = await page.evaluate((raw) => {
     const r = window.__quiz.storage.validateImport(JSON.stringify(raw));
-    return { ok: r.ok, version: r.store?.version, hasFav: !!(r.store && "favorites" in r.store), records: Object.keys(r.store?.records ?? {}).length, summary: r.summary };
+    return { ok: r.ok, version: r.store?.version, hasFav: !!(r.store && "favorites" in r.store), hasProfile: !!(r.store && "profile" in r.store), records: Object.keys(r.store?.records ?? {}).length, summary: r.summary };
   }, legacy);
   ok("v3 备份校验通过", check.ok === true, JSON.stringify(check));
-  ok("迁移后 version = 4", check.version === 4, `实际 ${check.version}`);
+  ok("迁移后 version = 5", check.version === 5, `实际 ${check.version}`);
   ok("迁移后存在 favorites 字段", check.hasFav === true);
+  ok("迁移后存在 profile 字段", check.hasProfile === true);
   ok("原 records 保留", check.records === 1, `${check.records}`);
 
   const applied = await page.evaluate((raw) => {

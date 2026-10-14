@@ -118,7 +118,7 @@ const view: View = {
           <p>· <b>总进度</b> = 已作答题数 ÷ 全部已加载题库的题数。</p>
           <p>· <b>今日目标 / 连续打卡 / 近 7 天</b> 按本机日期与每题的「最近一次作答时间」统计。</p>
           <p>· 填空题与简答题由你对照参考答案自行判定，判定结果同样计入统计与错题本。</p>
-          <p>· 所有记录保存在云端（Cloudflare D1），可在「我的 → 学习设置」导出备份。</p>
+          <p>· 所有记录保存在云端（Cloudflare D1），可在「我的 → 功能设置」导出备份。</p>
         </div>
         <div class="actions" style="margin-top:14px">
           <button class="btn btn--block" id="sWrong">查看错题本（${s.wrongCount}）</button>

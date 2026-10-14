@@ -5,12 +5,13 @@
  *   getStore() 同步返回 cache；recordAnswer/removeFromWrongbook 同步返回结果；
  *   saveStore 同步更新 cache + 异步推云端。
  *
- * store 结构（v4，与服务端同形——服务端不透明透传，不做 schema 校验）：
+ * store 结构（v5，与服务端同形——服务端不透明透传，不做 schema 校验）：
  * {
- *   version: 4,
+ *   version: 5,
  *   records:  { [qid]: { attempts, wrongAttempts, lastCorrect, lastUserAnswer, firstAt, lastAt } },
  *   wrongbook:{ [qid]: { wrongCount, addedAt, lastUserAnswer, lastWrongAt } },
  *   favorites:{ [qid]: { addedAt } },
+ *   profile:  { nickname? },
  *   updatedAt: number
  * }
  * qid 为三段式（如 G-S001），见 migrate.ts 的 ID_MIGRATION_V3。
@@ -19,12 +20,12 @@
  */
 
 import { emit } from "./state";
-import { migrateV1toV2, migrateV2toV3, migrateV3toV4, type LegacyStore } from "./migrate";
+import { migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, type LegacyStore } from "./migrate";
 import { apiFetch, isLoggedIn } from "./auth";
 import type { FavoriteEntry, Question, QuizStore, RecordEntry, WrongbookEntry, SyncStatus } from "./types";
 
 export const STORE_KEY = "quizapp.data.v1";   // 旧 localStorage key，仅迁移用
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 /** Chrome 对 keepalive 请求的 body 上限为 64KB，留出余量 */
 const KEEPALIVE_MAX_BYTES = 60000;
 
@@ -45,6 +46,7 @@ const emptyStore = (): QuizStore => ({
   records: {},
   wrongbook: {},
   favorites: {},
+  profile: {},
   updatedAt: 0,
 });
 
@@ -83,10 +85,13 @@ function normalize(raw: unknown): QuizStore | null {
   if (src.favorites && typeof src.favorites === "object" && !Array.isArray(src.favorites)) {
     store.favorites = src.favorites as Record<string, FavoriteEntry>;
   }
+  if (src.profile && typeof src.profile === "object" && !Array.isArray(src.profile)) {
+    store.profile = src.profile as QuizStore["profile"];
+  }
   return store;
 }
 
-/** 版本升级链：v1 → v2 → v3 → v4（幂等；已是最新版本原样返回） */
+/** 版本升级链：v1 → v2 → v3 → v4 → v5（幂等；已是最新版本原样返回） */
 function migrateIfNeeded(store: QuizStore | null): QuizStore {
   if (!store) return emptyStore();
   let s = store;
@@ -96,8 +101,11 @@ function migrateIfNeeded(store: QuizStore | null): QuizStore {
   if ((Number(s.version) || 0) < 3) {
     s = migrateV2toV3(s, null);
   }
-  if ((Number(s.version) || 0) < SCHEMA_VERSION) {
+  if ((Number(s.version) || 0) < 4) {
     s = migrateV3toV4(s);
+  }
+  if ((Number(s.version) || 0) < 5) {
+    s = migrateV4toV5(s);
   }
   return s;
 }
@@ -261,6 +269,10 @@ function mergeWithRemote(remote: QuizStore): QuizStore {
   const cur = cache ?? emptyStore();
   const merged = emptyStore();
   merged.updatedAt = Math.max(cur.updatedAt || 0, remote.updatedAt || 0);
+  // profile 无逐条时间戳：整体取较新的一端
+  merged.profile = (remote.updatedAt || 0) > (cur.updatedAt || 0)
+    ? { ...(remote.profile ?? {}) }
+    : { ...(cur.profile ?? {}) };
   for (const key of ["records", "wrongbook", "favorites"] as const) {
     const out: Record<string, RecordEntry | WrongbookEntry | FavoriteEntry> = { ...(cur[key] || {}) };
     for (const [qid, entry] of Object.entries(remote[key] || {})) {
@@ -296,7 +308,8 @@ export function flushStore(): void {
   // 空 store 不 flush（clearAll 已 DELETE 云端，避免用空覆盖或与迁移冲突）
   const isEmpty = Object.keys(cache.records).length === 0
     && Object.keys(cache.wrongbook).length === 0
-    && Object.keys(cache.favorites).length === 0;
+    && Object.keys(cache.favorites).length === 0
+    && !cache.profile?.nickname;
   if (isEmpty) return;
   try {
     const body = JSON.stringify({ store: cache, baseUpdatedAt });
@@ -417,6 +430,28 @@ export function toggleFavorite(questionId: string): boolean {
   return isFavorite(questionId) ? (removeFavorite(questionId), false) : (addFavorite(questionId), true);
 }
 
+/* ---------------- 个人资料（昵称） ---------------- */
+
+/** 昵称长度上限（字符） */
+export const NICKNAME_MAX = 12;
+
+/** 当前昵称（未设置返回空串；视图层回退为用户名） */
+export function getNickname(): string {
+  const n = getStore().profile?.nickname;
+  return typeof n === "string" ? n.trim() : "";
+}
+
+/** 设置昵称：去空白 + 截断；空串 = 清除。返回生效的昵称。 */
+export function setNickname(name: string): string {
+  const store = getStore();
+  const nick = String(name ?? "").trim().slice(0, NICKNAME_MAX);
+  store.profile = { ...(store.profile ?? {}) };
+  if (nick) store.profile.nickname = nick;
+  else delete store.profile.nickname;
+  saveStore(store);
+  return nick;
+}
+
 export function clearAll(): boolean {
   cache = emptyStore();
   baseUpdatedAt = 0;
@@ -453,7 +488,7 @@ export function validateImport(text: string): ImportCheck {
   if (raw.version !== undefined && Number(raw.version) > SCHEMA_VERSION) {
     return { ok: false, reason: `备份版本 v${raw.version} 高于当前应用版本 v${SCHEMA_VERSION}` };
   }
-  for (const key of ["records", "wrongbook", "favorites"]) {
+  for (const key of ["records", "wrongbook", "favorites", "profile"]) {
     const v = raw[key];
     if (v !== undefined && (typeof v !== "object" || v === null || Array.isArray(v))) {
       return { ok: false, reason: `${key} 字段格式应为对象` };
@@ -488,6 +523,10 @@ export function applyImport(store: QuizStore, mode: "replace" | "merge" = "repla
       const theirTime = e?.lastAt ?? e?.lastWrongAt ?? e?.addedAt ?? 0;
       if (!mine || theirTime > myTime) cur[key][qid] = entry as never;
     }
+  }
+  // 昵称：本机未设置时才采纳导入值（避免覆盖本机偏好）
+  if (!cur.profile?.nickname && store.profile?.nickname) {
+    cur.profile = { ...(cur.profile ?? {}), nickname: store.profile.nickname };
   }
   saveStore(cur);
   return cur;
