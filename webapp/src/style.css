@@ -408,21 +408,17 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 
 .opt-hint { font-size: 12.5px; color: var(--text-3); margin: 10px 0 0; text-align: center; }
 
-/* 判断题 */
+/* 判断题：左右双列等分并排，内容居中对称，高亮选中项 */
 .judge { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
-.judge__btn {
-  min-height: 72px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-  border: 1.5px solid var(--line); border-radius: var(--r);
-  background: var(--card-2); cursor: pointer;
-  font-size: 15px; font-weight: 600; color: var(--text-2);
-  transition: all var(--dur-1) var(--ease);
-}
-.judge__btn em { font-size: 30px; font-style: normal; line-height: 1; }
-.judge__btn:hover:not(:disabled) { border-color: #c6bff2; background: var(--card); }
-.judge__btn:disabled { cursor: default; }
-.judge__btn.is-ok { border-color: var(--ok); background: var(--ok-soft); color: #177a46; animation: optIn .22s var(--ease) both; }
-.judge__btn.is-bad { border-color: var(--bad); background: var(--bad-soft); color: #c03c3c; animation: optIn .22s var(--ease) both; }
+.judge__btn { justify-content: center; text-align: center; padding: 13px var(--sp-3); }
+.judge__btn .opt__key { font-size: 14px; }
+.judge__btn .opt__text { flex: none; }
+/* 选中高亮：在 is-sel 基础上叠加外环光圈、加粗文字 */
+.judge__btn.is-sel { box-shadow: 0 0 0 1.5px var(--primary); }
+.judge__btn.is-sel .opt__text { color: var(--primary); font-weight: 650; }
+/* 提交后对错态：去掉左侧 inset 指示条，改用全边框色区分（双列居中布局下左条不对称） */
+.judge__btn.is-ok  { box-shadow: 0 0 0 2px var(--ok); }
+.judge__btn.is-bad { box-shadow: 0 0 0 2px var(--bad); }
 
 /* 反馈 */
 .feedback { margin-top: var(--sp-4); animation: rise .22s var(--ease); }
@@ -603,8 +599,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   .card { padding: 14px; }
   .practice-head { gap: var(--sp-2); }
   .practice-head__idx { font-size: 12.5px; }
-  .judge__btn { min-height: 64px; }
-  .judge__btn em { font-size: 26px; }
   .opts { gap: var(--sp-2); }
   .actions { gap: var(--sp-2); }
   .summary__score { font-size: 38px; }

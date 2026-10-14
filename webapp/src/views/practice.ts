@@ -371,14 +371,18 @@ function renderOptions(q: Question): string {
 
 function renderJudge(q: Question): string {
   const s = S!;
+  const picked = s.userAnswer === true ? true : s.userAnswer === false ? false : null;
   const btn = (v: boolean, emoji: string, label: string): string => {
     let cls = "";
     if (s.settled) {
       if (v === q.answer) cls = " is-ok";
       else if (s.userAnswer === v) cls = " is-bad";
+    } else if (picked === v) {
+      cls = " is-sel";
     }
-    return `<button type="button" class="judge__btn${cls}" data-judge="${v}" ${s.settled ? "disabled" : ""}>
-      <em>${emoji}</em>${label}</button>`;
+    return `<button type="button" class="opt judge__btn${cls}" data-judge="${v}" ${s.settled ? "disabled" : ""}>
+      <span class="opt__key">${emoji}</span>
+      <span class="opt__text">${label}</span></button>`;
   };
   return `<p class="stem">${esc(q.stem)}</p>
     <div class="judge">${btn(true, "√", "正确")}${btn(false, "×", "错误")}</div>`;
@@ -750,7 +754,9 @@ function examBody(q: Question): string {
     case "judge": {
       const picked = ua === true ? true : ua === false ? false : null;
       const btn = (v: boolean, emoji: string, label: string): string =>
-        `<button type="button" class="judge__btn${picked === v ? " is-sel" : ""}" data-judge="${v}"><em>${emoji}</em>${label}</button>`;
+        `<button type="button" class="opt judge__btn${picked === v ? " is-sel" : ""}" data-judge="${v}">
+          <span class="opt__key">${emoji}</span>
+          <span class="opt__text">${label}</span></button>`;
       return `<p class="stem">${esc(q.stem)}</p><div class="judge">${btn(true, "√", "正确")}${btn(false, "×", "错误")}</div>`;
     }
     case "fill": {

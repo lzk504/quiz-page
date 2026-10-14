@@ -249,6 +249,26 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("已答 0 题时交卷按钮禁用", (await page.$eval("#examSubmit2", (n) => n.disabled)) === true);
   await shot("07-exam");
 
+  // 判断题 UI：与选择题一致的行式选项（.opt 结构），选中态边框高亮
+  const examIds = (await session()).ids;
+  let judgeIdx = -1;
+  for (let i = 0; i < examIds.length; i++) {
+    if ((await qMeta(examIds[i])).type === "judge") { judgeIdx = i; break; }
+  }
+  ok("考试卷含判断题", judgeIdx >= 0, `judgeIdx=${judgeIdx}`);
+  for (let i = 0; i < judgeIdx; i++) { await domClick("#examNext"); await sleep(120); }
+  ok("判断题为行式选项（.opt.judge__btn ×2，含 key 徽标）",
+    (await count(".judge .opt.judge__btn")) === 2 && (await count(".judge__btn .opt__key")) === 2,
+    `btn=${await count(".judge .opt.judge__btn")} key=${await count(".judge__btn .opt__key")}`);
+  ok("判断题未选中时无高亮", (await count(".judge__btn.is-sel")) === 0, `实际 ${await count(".judge__btn.is-sel")}`);
+  await domClick('.judge__btn[data-judge="true"]');
+  await sleep(300);
+  ok("判断题选中后 is-sel 唯一高亮", (await count(".judge__btn.is-sel")) === 1, `实际 ${await count(".judge__btn.is-sel")}`);
+  const selBorder = await page.$eval(".judge__btn.is-sel", (n) => getComputedStyle(n).borderColor);
+  ok("判断题选中边框为主色高亮", selBorder === "rgb(107, 92, 231)", selBorder);
+  await shot("07c-exam-judge-sel");
+  for (let i = 0; i < judgeIdx; i++) { await domClick("#examPrev"); await sleep(120); }
+
   // 前 6 题故意答错（覆盖客观题错误落库），其余留空
   for (let i = 0; i < 6; i++) {
     const id = (await session()).current;
@@ -276,6 +296,8 @@ const ADMIN_PW = `Pass${rnd()}1`;
   await sleep(400);
   await modalConfirm();
   await sleep(800);
+  const answeredNow = (await examSnap()).answered;   // 判断题 1 题 + 故意答错 6 题
+  const skippedNow = 100 - answeredNow;
   let snap = await examSnap();
   ok("交卷后进入自评 / 出分", snap.phase === "judging" || snap.phase === "result", `phase=${snap.phase}`);
   if (snap.phase === "judging") {
@@ -294,9 +316,9 @@ const ADMIN_PW = `Pass${rnd()}1`;
   ok("自评完成进入出分页", (await examSnap()).phase === "result", `judged=${(await examSnap()).judged}`);
   ok("出分页显示分数", (await count(".exam-score")) === 1, `${await txt(".exam-score")}`);
   ok("出分页含逐题清单 100 行", (await count(".exam-row")) === 100, `实际 ${await count(".exam-row")}`);
-  ok("提前交卷：未作答 94 题标「未作答」", (await count(".exam-row--skip")) === 94, `实际 ${await count(".exam-row--skip")}`);
+  ok(`提前交卷：未作答 ${skippedNow} 题标「未作答」`, (await count(".exam-row--skip")) === skippedNow, `实际 ${await count(".exam-row--skip")}`);
   ok("分母 = 已作答题数（文案含未作答不计分）",
-    /未作答\s*94\s*题不计分/.test((await txt(".exam-score__label")) || ""), `${await txt(".exam-score__label")}`);
+    new RegExp(`未作答\\s*${skippedNow}\\s*题不计分`).test((await txt(".exam-score__label")) || ""), `${await txt(".exam-score__label")}`);
   ok("出分页含分题型得分", (await count(".kpi")) >= 1, `实际 ${await count(".kpi")}`);
   const finalScore = (await examSnap()).score;
   ok("分数在 0-100（按已作答计分）", typeof finalScore === "number" && finalScore >= 0 && finalScore <= 100, `${finalScore}`);
