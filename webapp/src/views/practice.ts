@@ -85,6 +85,8 @@ interface PracticeDraft {
   /** 本次题序（保序还原） */
   ids: string[];
   index: number;
+  /** 当前题是否已作答结算（已判定显示答案） */
+  settled?: boolean;
   at: number;
 }
 
@@ -92,9 +94,18 @@ function saveDraft(): void {
   const s = S;
   if (!s || s.params.mode || s.isReviewMode) return;              // 特殊模式与查看解析模式不存草稿
   if (s.params.from === "chapter") return;                        // 章节练习按作答记录续答，不进草稿（也不误清其他入口的草稿）
-  if (s.done || !s.queue.length || s.index >= s.queue.length) { clearDraft(); return; }
+  if (s.done || !s.queue.length) { clearDraft(); return; }
+  // 如果已作答且已到最后一题，视为已完成练习，不再写草稿
+  if (s.settled && s.index >= s.queue.length - 1) { clearDraft(); return; }
+  if (s.index >= s.queue.length) { clearDraft(); return; }
   try {
-    const draft: PracticeDraft = { params: s.params, ids: s.queue.map((q) => q.id), index: s.index, at: Date.now() };
+    const draft: PracticeDraft = {
+      params: s.params,
+      ids: s.queue.map((q) => q.id),
+      index: s.index,
+      settled: !!s.settled,
+      at: Date.now(),
+    };
     localStorage.setItem(draftKey(), JSON.stringify(draft));
   } catch { /* ignore */ }
 }
@@ -114,13 +125,15 @@ function clearDraft(): void {
   try { localStorage.removeItem(draftKey()); } catch { /* ignore */ }
 }
 
-/** 按草稿还原会话（题序保序；题池缩水时 clamp 当前题） */
+/** 按草稿还原会话（题序保序；已作答则定位下一题，未作答则留在该题） */
 function resumeSession(d: PracticeDraft): Session {
   const s = createSession(d.params);
   const queue = d.ids.map((id) => getQuestion(id)).filter((q): q is Question => !!q);
   if (queue.length) {
     s.queue = queue;
-    s.index = Math.min(Math.max(0, d.index), queue.length - 1);
+    // 如果草稿记录中该题已经作答结算，继续练习时自动定位到下一题
+    const nextIdx = d.settled ? d.index + 1 : d.index;
+    s.index = Math.min(Math.max(0, nextIdx), queue.length - 1);
   }
   s.done = false;
   return s;
@@ -474,8 +487,8 @@ function renderActions(q: Question): string {
     </div>`;
   }
 
-  // 章节续答：可回看上一题（已做题以查看态呈现）
-  const prevBtn = isChapterNav && s.index > 0
+  // 练习模式与章节做题：只要有上一题（index > 0），均允许回看
+  const prevBtn = s.index > 0
     ? `<button class="btn btn--block" id="pPrev">‹ 上一题</button>`
     : "";
 
@@ -730,10 +743,8 @@ function bind(root: HTMLElement, q: Question): void {
   root.querySelector("#pJudgeOk")?.addEventListener("click", () => judgeSelf(root, q, true));
   root.querySelector("#pJudgeBad")?.addEventListener("click", () => judgeSelf(root, q, false));
 
-  const isChapterNav = !s.params.mode && s.params.from === "chapter" && !s.isReviewMode;
-
   root.querySelector<HTMLButtonElement>("#pPrev")?.addEventListener("click", () => {
-    if ((!s.isReviewMode && !isChapterNav) || s.index <= 0) return;
+    if (s.index <= 0) return;
     s.index--;
     const records = getStore().records ?? {};
     const prevQ = s.queue[s.index];
@@ -764,17 +775,11 @@ function bind(root: HTMLElement, q: Question): void {
     }
     s.index++;
     s.awaitingJudge = false;
-    if (isChapterNav) {
-      // 章节续答：前进到已做题以查看态呈现（上次答案 + 对错），未做题则是新题
-      const rec = (getStore().records ?? {})[s.queue[s.index]?.id ?? ""];
-      s.settled = !!rec;
-      s.userAnswer = rec?.lastUserAnswer ?? null;
-      s.result = rec ? { correct: !!rec.lastCorrect } : null;
-    } else {
-      s.settled = false;
-      s.result = null;
-      s.userAnswer = null;
-    }
+    // 无论是普通练习还是章节练习：若目标题已在 records 中做过，则以查看态呈现（展示答案与对错）；若是新题，则呈未作答待做态
+    const rec = (getStore().records ?? {})[s.queue[s.index]?.id ?? ""];
+    s.settled = !!rec;
+    s.userAnswer = rec?.lastUserAnswer ?? null;
+    s.result = rec ? { correct: !!rec.lastCorrect } : null;
     paint(root);
   });
 }
@@ -1248,9 +1253,13 @@ const view: View = {
     if (!mode && p.from !== "chapter") {
       const d = readDraft();
       if (d) {
+        const targetNum = d.settled ? Math.min(d.index + 2, d.ids.length) : Math.min(d.index + 1, d.ids.length);
+        const stateDesc = d.settled
+          ? `已作答完第 ${Math.min(d.index + 1, d.ids.length)} 题，将从第 ${targetNum} 题继续`
+          : `上次在第 ${Math.min(d.index + 1, d.ids.length)} 题尚未作答`;
         const cont = await confirmDialog({
           title: "继续上次练习？",
-          message: `上次练习到第 ${Math.min(d.index + 1, d.ids.length)} 题（共 ${d.ids.length} 题）。\n选「继续刷题」接着上次的进度，选「重新开始」则放弃本地记录并重新抽题。`,
+          message: `${stateDesc}（共 ${d.ids.length} 题）。\n选「继续刷题」接着上次的进度，选「重新开始」则放弃本地记录并重新抽题。`,
           confirmText: "继续刷题",
           cancelText: "重新开始",
         });
