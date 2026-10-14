@@ -16,12 +16,13 @@
  *   - 考试模式**不提供草稿续刷**（只有普通练习模式有）。
  */
 
-import { getQuestions, getLoadedQuestions, getQuestion, getSelectedBanks,
+import { getQuestions, getLoadedQuestions, getQuestion, getSelectedBanks, getBank,
   questionDomainLabel, typeLabels } from "../state";
 import { getStore, recordAnswer, toggleFavorite, isFavorite } from "../storage";
 import { grade, displayAnswer, displayUserAnswer, isSelfJudged, type GradeResult } from "../scoring";
 import {
   shuffle, examPick, examBlueprint, examTypeScores, DAILY_GOAL, todayAnswered, EXAM_MINUTES,
+  chapterOrderSort, smartPracticeSort,
   type ExamResultRow,
 } from "../goal";
 import { setLastScope } from "../local-prefs";
@@ -63,8 +64,10 @@ interface Session {
   exam: ExamState | null;
   /** 今日目标模式的说明（目标已达成等） */
   emptyHint?: string;
-  /** 已渲染过总结页（本次练习完成），用于 unmount 时不写草稿 */
+  /** 已渲染过总结页（本次练习完成），用于 unmount 不写草稿 */
   done?: boolean;
+  /** 是否处于已完成章节的答案解析浏览模式（不写草稿、支持双向翻题） */
+  isReviewMode?: boolean;
 }
 
 let S: Session | null = null;
@@ -87,7 +90,7 @@ interface PracticeDraft {
 
 function saveDraft(): void {
   const s = S;
-  if (!s || s.params.mode) return;              // 特殊模式不存草稿
+  if (!s || s.params.mode || s.isReviewMode) return;              // 特殊模式与查看解析模式不存草稿
   if (s.done || !s.queue.length || s.index >= s.queue.length) { clearDraft(); return; }
   try {
     const draft: PracticeDraft = { params: s.params, ids: s.queue.map((q) => q.id), index: s.index, at: Date.now() };
@@ -198,8 +201,13 @@ function buildPool(params: Record<string, string>): Question[] {
     if (types.length && !types.includes(q.type)) return false;
     return true;
   });
-  // 继续上次练习：优先出没做过的题
-  return params.fresh === "0" ? unansweredFirst(filtered) : shuffle(filtered);
+
+  // 1. 章节目录发起的练习：严格按题型固定顺序（单选>多选>判断>填空>简答）
+  if (params.from === "chapter") {
+    return chapterOrderSort(filtered);
+  }
+  // 2. 其它普通练习：采用智能推荐（未做题优先 > 错题 > 艾宾浩斯复习）
+  return smartPracticeSort(filtered, getStore());
 }
 
 function createSession(params: Record<string, string>): Session {
@@ -241,11 +249,12 @@ function createSession(params: Record<string, string>): Session {
     title = [...tNames, ...dNames].join(" · ") || "全部题目";
   }
 
-  // 队列：考试按蓝图抽题；错题重刷全量重排；单题/今日目标用已排序的池；普通练习截断到 100
+  // 队列：考试按蓝图抽题；错题重刷全量重排；单题/今日目标用已排序的池；章节练习动态全量入队；普通练习截断到 100
   let queue: Question[];
   if (mode === "exam") queue = examPick(pool, examBlueprint());
   else if (mode === "wrong") queue = shuffle(pool);
   else if (mode === "fav" || mode === "daily") queue = pool;
+  else if (params.from === "chapter") queue = pool;
   else queue = pool.slice(0, MAX_PER_SESSION);
 
   return {
@@ -446,6 +455,13 @@ function renderActions(q: Question): string {
   const s = S!;
   const last = s.index === s.queue.length - 1;
 
+  if (s.isReviewMode) {
+    return `<div class="self-judge">
+      <button class="btn btn--block" id="pPrev" ${s.index === 0 ? "disabled" : ""}>‹ 上一题</button>
+      <button class="btn btn--primary btn--block" id="pNext">${last ? "完成查看" : "下一题 ›"}</button>
+    </div>`;
+  }
+
   if (s.awaitingJudge) {
     return `<div class="self-judge">
       <button class="btn btn--ok btn--block" id="pJudgeOk">我答对了 ✓</button>
@@ -497,6 +513,16 @@ function renderSummary(root: HTMLElement): void {
   const rate = answered ? Math.round((correct / answered) * 100) : 0;
   const batchSize = s.queue.length;
   const mode = s.params.mode ?? "";
+  const isChapter = s.params.from === "chapter";
+  const bankId = s.params.banks?.split(",")[0];
+  const curBank = bankId ? getBank(bankId) : undefined;
+  let nextDomain: string | undefined;
+  if (isChapter && curBank && s.params.domain) {
+    const idx = curBank.domains.indexOf(s.params.domain);
+    if (idx >= 0 && idx < curBank.domains.length - 1) {
+      nextDomain = curBank.domains[idx + 1];
+    }
+  }
 
   root.innerHTML = `
     <section class="card summary">
@@ -513,22 +539,37 @@ function renderSummary(root: HTMLElement): void {
       ${mode === "wrong" || mode === "fav" ? "" : `<p class="about" style="text-align:center">本批共 ${batchSize} 题</p>`}
     </section>
     <div class="actions" style="flex-direction:column">
-      ${mode === "fav" ? "" : `<button class="btn btn--primary btn--block" id="pAgain">再刷一遍</button>`}
-      ${mode === "wrong" || mode === "fav" ? "" : `<button class="btn btn--block" id="pShuffle">换一批</button>`}
+      ${isChapter && nextDomain ? `<button class="btn btn--primary btn--block" id="pNextChapter">进入下一章节 ›</button>` : ""}
+      ${mode === "fav" ? "" : `<button class="btn ${isChapter && nextDomain ? "" : "btn--primary"} btn--block" id="pAgain">再刷一遍</button>`}
+      ${isChapter || mode === "wrong" || mode === "fav" ? "" : `<button class="btn btn--block" id="pShuffle">换一批</button>`}
+      ${isChapter ? `<button class="btn btn--block" id="pBanks">返回题库</button>` : ""}
       <button class="btn btn--block" id="pStats">查看数据报告</button>
       <button class="btn btn--block" id="pHome">返回首页</button>
     </div>
   `;
 
+  root.querySelector("#pNextChapter")?.addEventListener("click", () => {
+    navigate("practice", { domain: nextDomain!, banks: bankId!, from: "chapter" });
+  });
+
+  root.querySelector("#pBanks")?.addEventListener("click", () => {
+    navigate("banks", bankId ? { bank: bankId } : undefined);
+  });
+
   root.querySelector("#pAgain")?.addEventListener("click", () => {
     const s2 = S!;
-    s2.queue = shuffle(s2.queue);
+    if (s2.params.from === "chapter") {
+      s2.queue = chapterOrderSort(s2.queue);
+    } else {
+      s2.queue = shuffle(s2.queue);
+    }
     s2.index = 0;
     s2.settled = false;
     s2.awaitingJudge = false;
     s2.result = null;
     s2.userAnswer = null;
     s2.stats = { answered: 0, correct: 0, wrongAdded: 0, wrongCleared: 0 };
+    s2.isReviewMode = false;
     s2.done = false;
     paint(root);
   });
@@ -677,8 +718,36 @@ function bind(root: HTMLElement, q: Question): void {
   root.querySelector("#pJudgeOk")?.addEventListener("click", () => judgeSelf(root, q, true));
   root.querySelector("#pJudgeBad")?.addEventListener("click", () => judgeSelf(root, q, false));
 
+  root.querySelector<HTMLButtonElement>("#pPrev")?.addEventListener("click", () => {
+    if (!s.isReviewMode || s.index <= 0) return;
+    s.index--;
+    const records = getStore().records ?? {};
+    const prevQ = s.queue[s.index];
+    const rec = records[prevQ.id];
+    s.settled = true;
+    s.userAnswer = rec?.lastUserAnswer;
+    s.result = { correct: !!rec?.lastCorrect };
+    paint(root);
+  });
+
   root.querySelector<HTMLButtonElement>("#pNext")?.addEventListener("click", (e) => {
     (e.currentTarget as HTMLButtonElement).disabled = true;
+    if (s.isReviewMode) {
+      if (s.index >= s.queue.length - 1) {
+        s.done = true;
+        renderSummary(root);
+      } else {
+        s.index++;
+        const records = getStore().records ?? {};
+        const nextQ = s.queue[s.index];
+        const rec = records[nextQ.id];
+        s.settled = true;
+        s.userAnswer = rec?.lastUserAnswer;
+        s.result = { correct: !!rec?.lastCorrect };
+        paint(root);
+      }
+      return;
+    }
     s.index++;
     s.settled = false;
     s.awaitingJudge = false;
@@ -1153,6 +1222,7 @@ const view: View = {
 
     // 普通练习模式：若有本地草稿，先询问「继续上次」还是「重新开始」
     let s: Session;
+    let resumedDraft = false;
     if (!mode) {
       const d = readDraft();
       if (d) {
@@ -1163,7 +1233,7 @@ const view: View = {
           cancelText: "重新开始",
         });
         if (seq !== renderSeq) return;              // 等待期间已切走，放弃本次渲染
-        if (cont) { s = resumeSession(d); }
+        if (cont) { s = resumeSession(d); resumedDraft = true; }
         else { clearDraft(); s = createSession(p); }
       } else {
         s = createSession(p);
@@ -1180,6 +1250,40 @@ const view: View = {
     }
 
     if (S.exam) { renderExam(root); startTimer(root); return; }
+
+    // 章节目录练习全做完检测与弹窗
+    const isChapter = !mode && p.from === "chapter" && !resumedDraft;
+    const records = getStore().records ?? {};
+    const allDone = isChapter && s.queue.length > 0 && s.queue.every((q) => !!records[q.id]);
+
+    if (allDone) {
+      s.isReviewMode = true;
+      const firstQ = s.queue[0];
+      const rec = records[firstQ.id];
+      s.settled = true;
+      s.userAnswer = rec?.lastUserAnswer;
+      s.result = { correct: !!rec?.lastCorrect };
+      paint(root);
+
+      const redo = await confirmDialog({
+        title: "本章已完成",
+        message: `该章节共 ${s.queue.length} 道题已全部练习完成。\n是否选择重新作答本章题目？`,
+        confirmText: "重新作答",
+        cancelText: "查看解析",
+      });
+      if (seq !== renderSeq) return;
+      if (redo) {
+        s.isReviewMode = false;
+        s.settled = false;
+        s.result = null;
+        s.userAnswer = null;
+        s.stats = { answered: 0, correct: 0, wrongAdded: 0, wrongCleared: 0 };
+        s.index = 0;
+        paint(root);
+      }
+      return;
+    }
+
     paint(root);
   },
   unmount() {

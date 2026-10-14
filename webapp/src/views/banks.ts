@@ -110,10 +110,7 @@ function overviewCard(bank: BankMeta, questions: Question[]): string {
     </section>`;
 }
 
-function modeCard(bank: BankMeta, chapters: ChapterStat[]): string {
-  const first = chapters.find((c) => c.total > 0 && c.answered < c.total) ?? chapters.find((c) => c.total > 0);
-  const label = first ? `▷ 开始练习第 ${chapters.indexOf(first) + 1} 章` : "▷ 开始练习";
-
+function modeCard(bank: BankMeta): string {
   return `
     <section class="card">
       <h2 class="card__title">选择答题模式</h2>
@@ -136,7 +133,7 @@ function modeCard(bank: BankMeta, chapters: ChapterStat[]): string {
       <div class="actions" style="margin-top:14px">
         ${examMode
           ? `<button class="btn btn--primary btn--block" id="startMode">▷ 开始模拟考试</button>`
-          : `<button class="btn btn--primary btn--block" id="startMode" ${first ? "" : "disabled"}>${label}</button>`}
+          : `<button class="btn btn--primary btn--block" id="startMode">▷ 开始练习</button>`}
       </div>
     </section>`;
 }
@@ -247,7 +244,7 @@ const view: View = {
       </div>
 
       ${overviewCard(bank, questions)}
-      ${modeCard(bank, chapters)}
+      ${modeCard(bank)}
 
       <section class="card">
         <h2 class="card__title">章节目录 <small>点击章节开始做题</small></h2>
@@ -294,9 +291,7 @@ const view: View = {
 
     root.querySelector("#startMode")?.addEventListener("click", () => {
       if (examMode) { navigate("practice", { mode: "exam", banks: activeBank }); return; }
-      const first = chapters.find((c) => c.total > 0 && c.answered < c.total) ?? chapters.find((c) => c.total > 0);
-      if (first) navigate("practice", { domain: first.domain, banks: activeBank });
-      else navigate("practice", { banks: activeBank });
+      navigate("practice", { banks: activeBank });
     });
 
     bindChapters(root);
@@ -312,7 +307,7 @@ const view: View = {
       scope.querySelectorAll<HTMLButtonElement>(".chapter").forEach((btn) => {
         btn.addEventListener("click", () => {
           const domain = btn.dataset.domain;
-          if (domain) navigate("practice", { domain, banks: activeBank });
+          if (domain) navigate("practice", { domain, banks: activeBank, from: "chapter" });
         });
       });
     }

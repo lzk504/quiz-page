@@ -270,6 +270,71 @@ export function examPick(pool: Question[], blueprint: ExamBlueprint = examBluepr
   return shuffle(picked);
 }
 
+const TYPE_PRIORITY: Record<string, number> = {
+  single: 1,
+  multiple: 2,
+  judge: 3,
+  fill: 4,
+  short: 5,
+};
+
+/**
+ * 章节顺序排序：按题型固定顺序（单选 > 多选 > 判断 > 填空 > 简答），同题型内保持原有 ID 顺序
+ */
+export function chapterOrderSort(pool: Question[]): Question[] {
+  return [...pool].sort((a, b) => {
+    const pa = TYPE_PRIORITY[a.type] ?? 99;
+    const pb = TYPE_PRIORITY[b.type] ?? 99;
+    return pa - pb;
+  });
+}
+
+/**
+ * 智能练习选题排序：未做题优先 > 历史错题/薄弱题 > 最久未练已掌握题（艾宾浩斯防遗忘）
+ * 组内保持合理随机扰动，避免顺序死板
+ */
+export function smartPracticeSort(pool: Question[], store: QuizStore | null | undefined): Question[] {
+  const records = store?.records ?? {};
+  const wrongbook = store?.wrongbook ?? {};
+
+  const fresh: Question[] = [];
+  const wrong: Question[] = [];
+  const mastered: Question[] = [];
+
+  for (const q of pool) {
+    const rec = records[q.id];
+    if (!rec) {
+      fresh.push(q);
+    } else if (wrongbook[q.id] || !rec.lastCorrect) {
+      wrong.push(q);
+    } else {
+      mastered.push(q);
+    }
+  }
+
+  // 1. 新题：组内完全随机打乱
+  const sortedFresh = shuffle(fresh);
+
+  // 2. 错题：按错误次数降序，次数相同时按最近出错优先
+  const sortedWrong = wrong.sort((a, b) => {
+    const wa = wrongbook[a.id]?.wrongCount ?? records[a.id]?.wrongAttempts ?? 1;
+    const wb = wrongbook[b.id]?.wrongCount ?? records[b.id]?.wrongAttempts ?? 1;
+    if (wb !== wa) return wb - wa;
+    const ta = wrongbook[a.id]?.lastWrongAt ?? records[a.id]?.lastAt ?? 0;
+    const tb = wrongbook[b.id]?.lastWrongAt ?? records[b.id]?.lastAt ?? 0;
+    return tb - ta;
+  });
+
+  // 3. 已掌握题：按上次作答时间升序（最久没做的排前面）
+  const sortedMastered = mastered.sort((a, b) => {
+    const ta = records[a.id]?.lastAt ?? 0;
+    const tb = records[b.id]?.lastAt ?? 0;
+    return ta - tb;
+  });
+
+  return [...sortedFresh, ...sortedWrong, ...sortedMastered];
+}
+
 /* ---------------- 考试结果 ---------------- */
 
 export interface ExamTypeScore {
