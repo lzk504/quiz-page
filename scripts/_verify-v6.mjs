@@ -360,6 +360,8 @@ const ADMIN_PW = `Pass${rnd()}1`;
   const ids0 = s0.ids.join(",");
   ok("初始进入练习无续刷提示", (await count(".modal")) === 0, `modal=${await count(".modal")}`);
   ok("练习会话题量 ≤ 100", s0.ids.length > 0 && s0.ids.length <= 100, `${s0.ids.length}`);
+  ok("快速练习进度仍为题位式（N / M，不带已完成）",
+    /^\d+\s*\/\s*\d+$/.test(((await txt(".practice-head__idx")) || "").trim()), `${await txt(".practice-head__idx")}`);
   const q0 = await qMeta(s0.current);
   await answerWrong(q0);
   await sleep(200);
@@ -406,6 +408,16 @@ const ADMIN_PW = `Pass${rnd()}1`;
   const c0 = await session();
   ok("章节队列全量入队（> 100）", c0.ids.length > 100, `${c0.ids.length} 题`);
 
+  // 进度显示：已完成 X / N（X = store records 中该章已做题数），mini-bar 宽度同步
+  const recC0 = await store();
+  const doneC0 = c0.ids.filter((id) => recC0.records[id]).length;
+  ok(`章节进度显示「已完成 X / N」`,
+    new RegExp(`已完成\\s*${doneC0}\\s*/\\s*${c0.ids.length}`).test((await txt(".practice-head__idx")) || ""),
+    `${await txt(".practice-head__idx")}（records=${doneC0}）`);
+  const barW0 = await page.$eval(".mini-bar i", (n) => n.style.width);
+  ok("章节进度条起点 = 实际完成数", barW0 === `${Math.round((doneC0 / c0.ids.length) * 100)}%`, `${barW0}`);
+  await shot("13b-chapter-progress");
+
   // 答前 2 题（记下题 id），中途退出
   const answered2 = [];
   for (let i = 0; i < 2; i++) {
@@ -435,6 +447,10 @@ const ADMIN_PW = `Pass${rnd()}1`;
   const recNow = await store();
   ok("当前题为该章节第一道未做题", !recNow.records[c1.current], `${c1.current}`);
   ok("从第 1 题开始（index=0）", c1.index === 0, `index=${c1.index}`);
+  const doneC1 = doneC0 + 2;
+  ok("重进后进度含刚答的 2 题",
+    new RegExp(`已完成\\s*${doneC1}\\s*/\\s*${c1.ids.length}`).test((await txt(".practice-head__idx")) || ""),
+    `${await txt(".practice-head__idx")}`);
 
   // 回看：答 1 题 → 下一题 → 上一题 → 查看态（判定结果回显）
   const qCur = await qMeta(c1.current);

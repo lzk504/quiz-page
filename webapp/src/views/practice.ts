@@ -301,12 +301,24 @@ function paint(root: HTMLElement): void {
   if (index >= queue.length) { renderSummary(root); return; }
 
   const q = queue[index];
-  const pctDone = Math.round((s.stats.answered / queue.length) * 100);
+  // 进度口径分模式隔离：
+  //   章节续答 = 全章已完成题数（store records，含历史作答，起点与实际完成数一致）
+  //   其他练习 = 本次会话已答数（stats.answered，会话内从 0 计）
+  const isChapterNav = !s.params.mode && s.params.from === "chapter";
+  const chapterDone = isChapterNav
+    ? s.queue.filter((x) => !!(getStore().records ?? {})[x.id]).length
+    : 0;
+  const doneCount = isChapterNav ? chapterDone : s.stats.answered;
+  const pctDone = Math.round((doneCount / queue.length) * 100);
   const starred = isFavorite(q.id);
 
   root.innerHTML = `
     <div class="practice-head">
-      <span class="practice-head__idx"><b>${index + 1}</b> / ${queue.length}</span>
+      <span class="practice-head__idx">${
+        isChapterNav
+          ? `已完成 <b>${chapterDone}</b> / ${queue.length}`
+          : `<b>${index + 1}</b> / ${queue.length}`
+      }</span>
       <span class="practice-head__title">${esc(s.title)}</span>
       <button class="star-btn${starred ? " is-on" : ""}" id="pStar" title="${starred ? "取消收藏" : "收藏本题"}">★</button>
       <button class="btn btn--sm btn--ghost" id="pExit">退出</button>
