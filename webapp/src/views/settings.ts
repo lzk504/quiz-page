@@ -129,6 +129,21 @@ const view: View = {
       ` : ""}
 
       <section class="card">
+        <h2 class="card__title">界面与主题 <small>深色模式</small></h2>
+        <div class="setting-row">
+          <div class="setting-row__text">
+            <b>外观主题</b>
+            <span>支持深色护眼模式，夜间刷题更舒适。</span>
+          </div>
+          <select class="wb-select" id="themeSelect" style="max-width:140px;flex:none">
+            <option value="auto">跟随系统</option>
+            <option value="light">浅色模式</option>
+            <option value="dark">深色模式</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="card">
         <h2 class="card__title">关于</h2>
         <div class="about">
           <p><b>考点精编 · 学前教育备考</b></p>
@@ -139,6 +154,17 @@ const view: View = {
         </div>
       </section>
     `;
+
+    /* ---------- 主题切换 ---------- */
+    const selTheme = root.querySelector<HTMLSelectElement>("#themeSelect");
+    if (selTheme) {
+      selTheme.value = (window as unknown as { __quiz: { theme: { get: () => string } } }).__quiz?.theme?.get() ?? "auto";
+      selTheme.addEventListener("change", () => {
+        const val = selTheme.value as "auto" | "light" | "dark";
+        (window as unknown as { __quiz: { theme: { set: (m: string) => void } } }).__quiz?.theme?.set(val);
+        toast(`已切换为${val === "dark" ? "深色模式" : val === "light" ? "浅色模式" : "跟随系统"}`, "ok");
+      });
+    }
 
     /* ---------- 账号 ---------- */
     root.querySelector("#setBack")?.addEventListener("click", () => navigate("me"));

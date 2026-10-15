@@ -6,7 +6,7 @@ import { computeStats, type RateRow } from "../stats";
 import { recentAnswered, dailyGoal, streakDays } from "../goal";
 import { esc } from "../utils";
 import { navigate } from "../router";
-import { bar, emptyState } from "../ui";
+import { bar, emptyState, circleProgress } from "../ui";
 import type { View } from "../types";
 
 const BAR_BY_DOMAIN: Record<string, string> = {
@@ -60,18 +60,29 @@ const view: View = {
         action: `<button class="btn btn--primary" id="sPractice">去刷题</button>`,
       });
       bindHead();
-      root.querySelector("#sPractice")?.addEventListener("click", () => navigate("practice", { fresh: "1" }));
+      root.querySelector("#sPractice")?.addEventListener("click", () => navigate("general-practice", { fresh: "1" }));
       return;
     }
 
     const totalPct = s.progress.percent;
 
     root.innerHTML = head + `
-      <div class="stat-grid" style="margin-bottom:14px">
-        <div class="stat stat--rate"><b>${s.rate}%</b><span>正确率</span></div>
-        <div class="stat"><b>${s.answered}</b><span>已答题数</span></div>
-        <div class="stat"><b style="color:${s.wrongCount ? "var(--bad)" : "inherit"}">${s.wrongCount}</b><span>错题在册</span></div>
-      </div>
+      <section class="card" style="display:flex;align-items:center;justify-content:space-around;padding:16px 12px;margin-bottom:14px">
+        <div style="text-align:center">
+          ${circleProgress({ rate: s.rate, size: 76, strokeWidth: 7, color: "var(--primary)" })}
+          <span style="display:block;font-size:12px;color:var(--text-2);margin-top:4px">综合正确率</span>
+        </div>
+        <div style="height:48px;width:1px;background:var(--line)"></div>
+        <div style="text-align:center">
+          <b style="display:block;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2">${s.answered}</b>
+          <span style="font-size:12px;color:var(--text-2)">已答题数</span>
+        </div>
+        <div style="height:48px;width:1px;background:var(--line)"></div>
+        <div style="text-align:center">
+          <b style="display:block;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2;color:${s.wrongCount ? "var(--bad)" : "inherit"}">${s.wrongCount}</b>
+          <span style="font-size:12px;color:var(--text-2)">错题在册</span>
+        </div>
+      </section>
 
       <section class="card">
         <h2 class="card__title">学习节奏</h2>

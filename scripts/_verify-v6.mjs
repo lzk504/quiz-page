@@ -377,7 +377,9 @@ const ADMIN_PW = `Pass${rnd()}1`;
   // 路径 A：继续上次
   await go("practice", 500);
   ok("再次进入弹出续刷提示", (await count(".modal")) === 1, `modal=${await count(".modal")}`);
-  ok("提示含进度文案", /第 \d+ 题（共 \d+ 题）/.test((await txt(".modal__msg")) || ""), `${await txt(".modal__msg")}`);
+  // 文案两变体（b061bd6 起）：未作答 →「上次在第 X 题尚未作答（共 N 题）」；已结算 →「已作答完第 X 题，将从第 Y 题继续（共 N 题）」
+  const resumeMsg = (await txt(".modal__msg")) || "";
+  ok("提示含进度文案", /(第 \d+ 题尚未作答|已作答完第 \d+ 题，将从第 \d+ 题继续)（共 \d+ 题）/.test(resumeMsg), resumeMsg);
   await shot("06c-resume-modal");
   await modalConfirm();
   await sleep(400);

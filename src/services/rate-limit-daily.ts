@@ -3,7 +3,7 @@
  *
  * 与 ratelimit.ts 的「分钟级内存限流」互补：
  *   - ratelimit.ts：防爆破（register/login 各 10 次/分钟/IP，纯内存，快）
- *   - 本模块：控制「每日总用量」（未登录 IP 9 次/天、登录用户 64 次/天），
+ *   - 本模块：控制「每日总用量」（未登录 IP 30 次/天、登录用户 64 次/天），
  *     用 KV 持久计数 + 24h TTL 自动回收，跨 isolate/colo 精确
  *
  * 计数 key：
@@ -19,7 +19,7 @@ import type { Ctx } from "../types";
 import { clientIp } from "../ratelimit";
 
 const TTL_SECONDS = 86400;          // 24 小时自动回收
-const UNAUTH_LIMIT = 9;             // 未登录 IP 每日限额
+const UNAUTH_LIMIT = 30;            // 未登录 IP 每日限额（登录/注册尝试计数）
 const AUTH_LIMIT = 64;              // 已登录用户每日限额
 
 /** 北京时间 YYYY-MM-DD（UTC+8） */

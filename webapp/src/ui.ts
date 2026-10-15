@@ -77,7 +77,43 @@ export const TYPE_ICON: Record<string, string> = {
 
 /* ---------------- 通用确认弹窗 ----------------
  * 替代 window.confirm：原生 confirm 在部分环境（WebView / 自动化浏览器）会被
- * 静默吞掉，表现为「点了没反应」。这里统一用自定义弹窗，Promise<boolean> 语义不变。
+/** Vant Circle 环形进度条组件 */
+export interface CircleOptions {
+  rate: number;         // 0 ~ 100
+  size?: number;        // 像素尺寸，默认 76
+  strokeWidth?: number; // 轨道宽度，默认 6
+  color?: string;       // 进度颜色，默认 var(--van-primary-color)
+  layerColor?: string;  // 底圈颜色，默认 var(--van-border-color)
+  text?: string;        // 环内文字
+}
+
+export function circleProgress({
+  rate,
+  size = 76,
+  strokeWidth = 6,
+  color = "var(--primary)",
+  layerColor = "var(--line-2)",
+  text = "",
+}: CircleOptions): string {
+  const r = 50 - strokeWidth / 2;
+  const perimeter = 2 * Math.PI * r;
+  const pctVal = Math.max(0, Math.min(100, Math.round(rate || 0)));
+  const offset = perimeter * (1 - pctVal / 100);
+
+  return `
+    <div class="van-circle" style="width:${size}px;height:${size}px;" role="progressbar" aria-valuenow="${pctVal}" aria-valuemin="0" aria-valuemax="100">
+      <svg viewBox="0 0 100 100">
+        <circle class="van-circle__layer" cx="50" cy="50" r="${r}" stroke="${layerColor}" stroke-width="${strokeWidth}"></circle>
+        <circle class="van-circle__hover" cx="50" cy="50" r="${r}" stroke="${color}" stroke-width="${strokeWidth}"
+          stroke-dasharray="${perimeter.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"
+          stroke-linecap="round"></circle>
+      </svg>
+      <div class="van-circle__text">${text ? esc(text) : `<b>${pctVal}</b><small>%</small>`}</div>
+    </div>`;
+}
+
+/* ---------------- 通用确认弹窗 (Vant Dialog 规范) ----------------
+ * 替代 window.confirm：16px 圆角卡片，文字居中，底部等分单线无边框按钮组
  */
 
 let activeDialog: HTMLElement | null = null;
@@ -103,12 +139,12 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
     const mask = document.createElement("div");
     mask.className = "modal-mask";
     mask.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true">
-        <h3 class="modal__title">${esc(opts.title)}</h3>
-        <p class="modal__msg">${esc(opts.message)}</p>
-        <div class="modal__btns">
-          <button class="btn" id="modalCancel">${esc(opts.cancelText ?? "取消")}</button>
-          <button class="btn ${opts.danger ? "btn--danger-solid" : "btn--primary"}" id="modalOk">${esc(opts.confirmText ?? "确定")}</button>
+      <div class="modal van-dialog" role="dialog" aria-modal="true">
+        <h3 class="modal__title van-dialog__header">${esc(opts.title)}</h3>
+        <div class="modal__msg van-dialog__content">${esc(opts.message)}</div>
+        <div class="modal__btns van-dialog__footer">
+          <button class="van-dialog__btn van-dialog__cancel" id="modalCancel">${esc(opts.cancelText ?? "取消")}</button>
+          <button class="van-dialog__btn van-dialog__confirm ${opts.danger ? "van-dialog__confirm--danger" : ""}" id="modalOk">${esc(opts.confirmText ?? "确认")}</button>
         </div>
       </div>`;
 
@@ -132,7 +168,7 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
   });
 }
 
-/** 全局 toast */
+/** 全局 toast (Vant Toast 风格：居中圆角、半透明深色) */
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 export function toast(message: string, kind: "info" | "ok" | "bad" = "info"): void {
   let node = document.getElementById("toast");
@@ -145,5 +181,6 @@ export function toast(message: string, kind: "info" | "ok" | "bad" = "info"): vo
   node.className = `toast toast--${kind} is-on`;
   node.textContent = message;
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node!.classList.remove("is-on"), 2400);
+  toastTimer = setTimeout(() => node!.classList.remove("is-on"), 2200);
 }
+

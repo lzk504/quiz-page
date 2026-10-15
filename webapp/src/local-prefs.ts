@@ -58,3 +58,20 @@ export function setLastScope(scope: Omit<LastScope, "at"> | null): void {
   };
   write(LAST_SCOPE_KEY, JSON.stringify(value));
 }
+
+/* ---------------- 深色模式偏好 ---------------- */
+
+export type ThemeMode = "auto" | "light" | "dark";
+const THEME_KEY = "quizapp.theme.v1";
+
+export function getThemePref(): ThemeMode {
+  const raw = read(THEME_KEY);
+  if (raw === "light" || raw === "dark" || raw === "auto") return raw;
+  return "auto";
+}
+
+export function setThemePref(mode: ThemeMode): void {
+  if (mode === "auto") write(THEME_KEY, null);
+  else write(THEME_KEY, mode);
+}
+

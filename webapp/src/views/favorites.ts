@@ -53,7 +53,7 @@ const view: View = {
         desc: "刷题时点右上角的 ☆ 就能收藏，收藏的题目不会展示答案，方便反复重做。",
         action: `<button class="btn btn--primary" id="favGo">去刷题</button>`,
       });
-      emptyBox.querySelector("#favGo")?.addEventListener("click", () => navigate("practice", { fresh: "1" }));
+      emptyBox.querySelector("#favGo")?.addEventListener("click", () => navigate("general-practice", { fresh: "1" }));
       root.querySelector("#favBack")?.addEventListener("click", () => navigate("me"));
       return;
     }
@@ -80,7 +80,7 @@ const view: View = {
       listBox!.querySelectorAll<HTMLElement>(".fav-card").forEach((node) => {
         const id = node.dataset.id!;
         node.querySelector('[data-act="again"]')?.addEventListener("click", () => {
-          navigate("practice", { mode: "fav", qid: id });
+          navigate("general-practice", { mode: "fav", qid: id });
         });
         const unfav = (): void => {
           toggleFavorite(id);

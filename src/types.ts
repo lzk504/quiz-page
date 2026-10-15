@@ -58,6 +58,11 @@ export interface Env {
   HIDE_WEB_VAULT?: string;
   /** "1" 时启用 POST /__dev/reset（仅本地 .dev.vars 开启） */
   ALLOW_DEV_RESET?: string;
+  /**
+   * "1" 时跳过 register/login 的分钟级限流与每日限额（本地调试用）。
+   * 必须配合 ALLOW_DEV_RESET="1" 才生效（生产不会同时配置这两个值）。
+   */
+  DEV_UNLIMITED?: string;
 }
 
 /** 新用户建档入参（role 由存储层按首用户判定，密码哈希由调用方算好传入） */

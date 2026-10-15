@@ -1,11 +1,11 @@
-/** 应用入口：初始化存储 → 加载题库 → 注册视图 → 启动路由 */
-
+import "@vant/icons/src/index.less";
 import "./style.css";
 
 import { loadBanks, on, getMeta, getQuestions, getBanks } from "./state";
 import { initStorage, getStore, isPersistent, setValidIds, flushStore,
   exportJson, validateImport, applyImport, clearAll, toggleFavorite, isFavorite,
   getNickname, setNickname } from "./storage";
+import { getThemePref, setThemePref } from "./local-prefs";
 import { initAuth, isLoggedIn, fetchMe, clearToken } from "./auth";
 import { startSync } from "./sync";
 import { register, startRouter, type Route } from "./router";
@@ -13,9 +13,28 @@ import { computeStats } from "./stats";
 import { esc, APP_NAME } from "./utils";
 import type { SyncStatus } from "./types";
 
+/** 深色模式统一管理与响应 */
+function applyTheme(): void {
+  const pref = getThemePref();
+  const root = document.documentElement;
+  if (pref === "dark") {
+    root.setAttribute("data-theme", "dark");
+  } else if (pref === "light") {
+    root.setAttribute("data-theme", "light");
+  } else {
+    // auto: 跟随系统偏好
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    root.setAttribute("data-theme", isDark ? "dark" : "light");
+  }
+}
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (getThemePref() === "auto") applyTheme();
+});
+
+
 import home from "./views/home";
 import banks from "./views/banks";
-import practice, { debugSession, debugExam } from "./views/practice";
+import { generalPractice, chapterPractice, exam, wrongPractice, debugSession, debugExam, WrongbookManager } from "./views/practice-hub";
 import wrongbook from "./views/wrongbook";
 import me from "./views/me";
 import favorites from "./views/favorites";
@@ -36,6 +55,10 @@ import login from "./views/login";
     isFavorite, toggleFavorite,
     // 调试用：昵称读写（e2e 断言用）
     nickname: getNickname, setNickname,
+  },
+  theme: {
+    get: getThemePref,
+    set: (m: Parameters<typeof setThemePref>[0]) => { setThemePref(m); applyTheme(); },
   },
   practice: { session: debugSession, exam: debugExam },
   /** 应用名（e2e 断言标题口径用） */
@@ -87,7 +110,7 @@ function syncChrome(route: Route): void {
 function syncBadge(): void {
   const badge = document.getElementById("tabBadge");
   if (!badge) return;
-  const n = computeStats(getQuestions(), getStore()).wrongCount;
+  const n = WrongbookManager.getStats().pending;
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.hidden = n === 0;
 }
@@ -130,11 +153,16 @@ function renderLoadError(app: HTMLElement, err: Error): void {
 /* ---------------- 启动 ---------------- */
 
 async function boot(): Promise<void> {
+  applyTheme();
   const app = document.getElementById("app")!;
 
   register("home", home);
   register("banks", banks);
-  register("practice", practice);
+  register("general-practice", generalPractice);
+  register("chapter-practice", chapterPractice);
+  register("practice", generalPractice);
+  register("exam", exam);
+  register("wrong-practice", wrongPractice);
   register("wrongbook", wrongbook);
   register("me", me);
   register("favorites", favorites);
@@ -178,6 +206,11 @@ async function boot(): Promise<void> {
   on("store-changed", refreshChrome);
   on("data-loaded", refreshChrome);
   on("banks-changed", refreshChrome);
+
+  // 后台预加载全部题库，让全局错题角标、个人中心等在全库维度保持一致
+  void WrongbookManager.ensureReady().then(() => {
+    refreshChrome();
+  });
   on("storage-broken", () => {
     if (isPersistent()) return;
     showBanner("本地存储不可用（可能是隐私模式或浏览器限制），登录态无法保持，每次打开需重新登录。");

@@ -377,12 +377,7 @@ export function recordAnswer(
   let enteredWrongbook = false;
   let leftWrongbook = false;
 
-  if (isCorrect) {
-    if (store.wrongbook[id]) {
-      delete store.wrongbook[id];
-      leftWrongbook = true;
-    }
-  } else {
+  if (!isCorrect) {
     const w = store.wrongbook[id];
     store.wrongbook[id] = {
       wrongCount: (w?.wrongCount ?? 0) + 1,

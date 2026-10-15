@@ -21,7 +21,7 @@ import { getLastScope, type LastScope } from "../local-prefs";
 import { getCurrentUser } from "../auth";
 import { esc, pct, APP_NAME, fmtDate } from "../utils";
 import { navigate } from "../router";
-import { emptyState } from "../ui";
+import { emptyState, circleProgress } from "../ui";
 import type { BankMeta, Question, View } from "../types";
 
 /* ---------------- 小工具 ---------------- */
@@ -108,8 +108,8 @@ function continueCard(): string {
   const rate = answered ? pct(correct, answered) : 0;
 
   const isChapter = scope?.from === "chapter";
-  const titleText = isChapter ? "▷ 继续上次章节练习" : "▷ 继续上次练习";
-  const tagText = isChapter ? "章节模式" : "练习模式";
+  const titleText = isChapter ? "▷ 继续上次章节练习" : "▷ 继续上次全范围练习";
+  const tagText = isChapter ? "章节练习" : "全库全范围练习";
 
   return `
     <section class="card continue-card" id="continueCard">
@@ -117,13 +117,19 @@ function continueCard(): string {
         <h2 class="card__title" style="margin:0">${titleText}</h2>
         <span class="continue-card__tag">${tagText}</span>
       </div>
-      <p class="continue-card__desc">${esc(scopeLabel(scope, pool))} · 还有 <b>${rest}</b> 题没做过。</p>
-      <div class="continue-card__meta">
-        <span>本范围进度 <b>${answered}/${pool.length}</b></span>
-        <span>正确率 ${answered ? `<b>${rate}%</b>` : "—"}</span>
+      <div style="display:flex;align-items:center;gap:16px;margin:12px 0">
+        <div style="flex:none">
+          ${circleProgress({ rate: answered ? pct(answered, pool.length) : 0, size: 68, strokeWidth: 7, color: "var(--primary)" })}
+        </div>
+        <div style="flex:1;min-width:0">
+          <p class="continue-card__desc" style="margin:0 0 6px">${esc(scopeLabel(scope, pool))}</p>
+          <div class="continue-card__meta">
+            <span>进度 <b>${answered}/${pool.length}</b></span>
+            <span>正确率 ${answered ? `<b>${rate}%</b>` : "—"}</span>
+          </div>
+        </div>
       </div>
-      <div class="rate-row__bar"><i class="bar--blue" style="width:${pct(answered, pool.length)}%"></i></div>
-      <div class="actions" style="margin-top:14px">
+      <div class="actions" style="margin-top:12px">
         <button class="btn btn--primary" id="qContinue">接着做题</button>
       </div>
     </section>`;
@@ -132,14 +138,14 @@ function continueCard(): string {
 /** 快捷入口 */
 function quickGrid(): string {
   const items = [
-    { id: "quickChapter", icon: "▦", tone: "violet", label: "章节练习", desc: "按领域刷题" },
-    { id: "quickExam", icon: "⏱", tone: "red", label: "考试模式", desc: "100 题 · 60 分钟" },
-    { id: "quickWrong", icon: "✎", tone: "green", label: "错题本", desc: "重刷错题" },
-    { id: "quickFav", icon: "★", tone: "gold", label: "我的收藏", desc: "好题收藏" },
+    { id: "quickChapter", icon: "van-icon-cluster-o", tone: "violet", label: "章节练习", desc: "按领域刷题" },
+    { id: "quickExam", icon: "van-icon-clock-o", tone: "red", label: "考试模式", desc: "100 题 · 60 分钟" },
+    { id: "quickWrong", icon: "van-icon-records-o", tone: "green", label: "错题本", desc: "重刷错题" },
+    { id: "quickFav", icon: "van-icon-star-o", tone: "gold", label: "我的收藏", desc: "好题收藏" },
   ];
   return `<div class="quick-grid">${items.map((it) => `
     <button class="quick" id="${it.id}">
-      <span class="quick__icon quick__icon--${it.tone}">${it.icon}</span>
+      <span class="quick__icon quick__icon--${it.tone}"><i class="van-icon ${it.icon}"></i></span>
       <span>
         <span class="quick__label">${it.label}</span>
         <span class="quick__desc">${it.desc}</span>
@@ -230,7 +236,7 @@ const view: View = {
             <h1 class="hero__title greet__name">${esc(APP_NAME)}</h1>
             <p class="greet__hello">${greeting()}，${esc(displayName)} · 今天也要稳稳拿分</p>
           </div>
-          <button class="greet__gear" id="goSettings" title="功能设置">⚙</button>
+          <button class="greet__gear" id="goSettings" title="功能设置"><i class="van-icon van-icon-setting-o"></i></button>
         </div>
 
         <div class="exam-banner">
@@ -263,10 +269,10 @@ const view: View = {
     `;
 
     /* ---------- 事件 ---------- */
-    const startDefault = (): void => navigate("practice", { fresh: "1" });
+    const startDefault = (): void => navigate("general-practice", { fresh: "1" });
 
     root.querySelector("#goSettings")?.addEventListener("click", () => navigate("settings"));
-    root.querySelector("#goDaily")?.addEventListener("click", () => navigate("practice", { mode: "daily" }));
+    root.querySelector("#goDaily")?.addEventListener("click", () => navigate("general-practice", { mode: "daily" }));
 
     root.querySelector("#qStart")?.addEventListener("click", startDefault);
     root.querySelector("#qGoBanks")?.addEventListener("click", () => navigate("banks"));
@@ -276,12 +282,15 @@ const view: View = {
       const params: Record<string, string> = { banks: scope.banks.join(","), fresh: "0" };
       if (scope.domain) params.domain = scope.domain;
       if (scope.type) params.type = scope.type;
-      if (scope.from) params.from = scope.from;
-      navigate("practice", params);
+      if (scope.from === "chapter") {
+        navigate("chapter-practice", params);
+      } else {
+        navigate("general-practice", params);
+      }
     });
 
     root.querySelector("#quickChapter")?.addEventListener("click", () => navigate("banks"));
-    root.querySelector("#quickExam")?.addEventListener("click", () => navigate("practice", { mode: "exam" }));
+    root.querySelector("#quickExam")?.addEventListener("click", () => navigate("exam"));
     root.querySelector("#quickWrong")?.addEventListener("click", () => navigate("wrongbook"));
     root.querySelector("#quickFav")?.addEventListener("click", () => navigate("favorites"));
 
@@ -298,7 +307,7 @@ const view: View = {
     root.querySelectorAll<HTMLButtonElement>(".rec").forEach((btn) => {
       btn.addEventListener("click", () => {
         const domain = btn.dataset.domain;
-        navigate("practice", domain ? { mode: "wrong", domain } : { mode: "wrong" });
+        navigate("wrong-practice", domain ? { domain } : undefined);
       });
     });
   },

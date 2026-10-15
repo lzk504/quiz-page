@@ -13,6 +13,7 @@ import { esc, pct } from "../utils";
 import { navigate } from "../router";
 import { toast } from "../ui";
 import type { View } from "../types";
+import { WrongbookManager } from "./practice-hub/wrongbook-manager";
 
 const ISSUES_URL = "https://github.com/lzk504/quiz-page/issues";
 
@@ -46,11 +47,15 @@ function bankRows(): string {
 
 const view: View = {
   async render(root) {
+    // 确保所有题库加载完毕，保证跨库统计与错题数量统一完整
+    await WrongbookManager.ensureReady();
+
     const store = getStore();
     const user = getCurrentUser();
     const username = user?.username ?? "同学";
     const all = getLoadedQuestions();
     const s = computeStats(all, store);
+    const wrongStats = WrongbookManager.getStats();
     const streak = streakDays(store);
     const week = weekSummary(all, store);
     const goal = dailyGoal(store);
@@ -85,7 +90,7 @@ const view: View = {
         <div class="profile-stats">
           <div class="profile-stat"><b>${prev}</b><span>累计做题</span></div>
           <div class="profile-stat"><b>${s.answered ? s.rate + "%" : "—"}</b><span>正确率</span></div>
-          <div class="profile-stat"><b>${s.wrongCount}</b><span>错题在册</span></div>
+          <div class="profile-stat"><b>${wrongStats.pending}</b><span>错题在册</span></div>
         </div>
       </section>
 
@@ -107,7 +112,7 @@ const view: View = {
             <span class="list-row__label">错题本</span>
             <span class="list-row__desc">答错自动收录，重刷答对即移出</span>
           </span>
-          <span class="list-row__value ${s.wrongCount ? "list-row__value--bad" : ""}">${s.wrongCount} 道待复习</span>
+          <span class="list-row__value ${wrongStats.pending ? "list-row__value--bad" : ""}">${wrongStats.pending} 道待复习</span>
           <span class="list-row__arrow">›</span>
         </button>
         <button class="list-row" id="meFav">

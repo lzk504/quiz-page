@@ -16,8 +16,9 @@ let current: View | null = null;
 let onAfter: ((route: Route) => void) | null = null;
 
 const PUBLIC_VIEWS = new Set(["login"]);
-/** 自带标题区（蓝卡 / 紫卡 / 沉浸页 / 列表页标题头）的视图：隐藏顶栏品牌栏 */
-const TOPBAR_HIDDEN = new Set(["home", "me", "practice", "login", "banks", "wrongbook"]);
+const TOPBAR_HIDDEN = new Set([
+  "home", "me", "practice", "general-practice", "chapter-practice", "exam", "wrong-practice", "login", "banks", "wrongbook",
+]);
 
 export function register(name: string, view: View): void {
   views.set(name, view);
@@ -65,7 +66,24 @@ async function render(): Promise<void> {
     return;
   }
 
-  const target = views.get(view) ?? views.get(DEFAULT_ROUTE);
+  let activeView = view;
+  const activeParams = { ...params };
+  // 向前兼容代理：访问旧路由 #/practice 自动定向到对应独立路由
+  if (activeView === "practice") {
+    if (activeParams.mode === "exam") {
+      delete activeParams.mode;
+      activeView = "exam";
+    } else if (activeParams.mode === "wrong") {
+      delete activeParams.mode;
+      activeView = "wrong-practice";
+    } else if (activeParams.from === "chapter" || activeParams.domain) {
+      activeView = "chapter-practice";
+    } else {
+      activeView = "general-practice";
+    }
+  }
+
+  const target = views.get(activeView) ?? views.get(DEFAULT_ROUTE);
   if (!target) return;
 
   const app = document.getElementById("app");
@@ -78,22 +96,27 @@ async function render(): Promise<void> {
 
   current = target;
   app.innerHTML = "";
-  app.classList.toggle("app--flush", view === "practice");
+  const isFlush = activeView === "practice" ||
+    activeView === "general-practice" ||
+    activeView === "chapter-practice" ||
+    activeView === "exam" ||
+    activeView === "wrong-practice";
+  app.classList.toggle("app--flush", isFlush);
   // 登录页隐藏底部导航与顶栏统计
-  app.classList.toggle("app--auth", view === "login");
+  app.classList.toggle("app--auth", activeView === "login");
   // 自带标题区的视图隐藏顶栏品牌栏
-  app.classList.toggle("app--nobar", TOPBAR_HIDDEN.has(view));
+  app.classList.toggle("app--nobar", TOPBAR_HIDDEN.has(activeView));
   window.scrollTo({ top: 0, behavior: "auto" });
 
   try {
-    await target.render(app, params);
+    await target.render(app, activeParams);
   } catch (e) {
     console.error("[router] 渲染出错", e);
     app.innerHTML = `<div class="error"><div class="error__icon">⚠️</div>
       <h2>页面渲染失败</h2><p>${(e as Error)?.message ?? "未知错误"}</p></div>`;
   }
 
-  onAfter?.({ view, params });
+  onAfter?.({ view: activeView, params: activeParams });
 }
 
 export function startRouter(afterRender: (route: Route) => void): void {

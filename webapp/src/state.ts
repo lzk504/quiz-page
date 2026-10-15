@@ -136,6 +136,13 @@ export function ensureBank(id: string): Promise<BankState | null> {
 }
 
 /**
+ * 加载全部已知题库（并发、带缓存），确保跨库数据完整。
+ */
+export async function ensureAllBanks(): Promise<void> {
+  await Promise.all(state.banks.map((b) => ensureBank(b.id)));
+}
+
+/**
  * 启动入口：读清单 → 恢复选中库 → 加载选中库。
  * 单个库加载失败不阻塞启动（该库视为不可用）。
  */
@@ -209,7 +216,7 @@ export function getBankOf(q: Question | string): BankMeta | undefined {
 /* ---------------- 题库展示名（v6.1：隐藏 G/P/Y 编号） ---------------- */
 
 /** 题库固定短名（展示用，不带编号） */
-const BANK_SHORT_NAMES: Record<string, string> = { G: "指南", P: "保育评估", Y: "纲要" };
+const BANK_SHORT_NAMES: Record<string, string> = { G: "指南", P: "评估", Y: "纲要" };
 
 /** 书名号短标题：《…》取书名号内文本；无书名号则原样返回 */
 export function bankShortTitle(title: string): string {

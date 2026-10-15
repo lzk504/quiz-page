@@ -12,7 +12,7 @@ import {
 } from "./auth";
 import { createStore } from "./services/storage";
 import { createDailyRateLimiter } from "./services/rate-limit-daily";
-import { createRouter, json, fail, readJson, type Handler } from "./router";
+import { createRouter, json, fail, readJson, type Handler, type Middleware } from "./router";
 import { createRateLimiter, clientIp } from "./ratelimit";
 import type { Ctx, Env, Invite, NewUserRec, RegisterResult } from "./types";
 
@@ -23,7 +23,21 @@ const LIMIT = 10;
 const rlRegisterKey = (c: Ctx) => `${clientIp(c.request)}:register`;
 const rlLoginKey = (c: Ctx) => `${clientIp(c.request)}:login`;
 
-/* ---------------- 每日限额（KV 持久，未登录 9 次/登录 64 次） ---------------- */
+/**
+ * 本地调试旁路：DEV_UNLIMITED="1" 且 ALLOW_DEV_RESET="1"（只会在 .dev.vars 同时出现）时，
+ * 跳过 register/login 的分钟级限流与每日限额。
+ * 背景：本地 wrangler dev 所有请求 clientIp 都是 127.0.0.1，共用同一个限额桶
+ * （未登录 30 次/天），反复登录调试极易撞满 429 daily_limit。生产不会配置这两个值。
+ */
+function isDevUnlimited(c: Ctx): boolean {
+  return c.env.ALLOW_DEV_RESET === "1" && c.env.DEV_UNLIMITED === "1";
+}
+
+function devSkippable(mw: Middleware): Middleware {
+  return (c) => (isDevUnlimited(c) ? undefined : mw(c));
+}
+
+/* ---------------- 每日限额（KV 持久，未登录 30 次/登录 64 次） ---------------- */
 
 const dailyLimiter = createDailyRateLimiter();
 
@@ -190,10 +204,10 @@ export const devReset: Handler = async (c) => {
 const router = createRouter();
 
 router.route("POST", "/api/register", register, {
-  before: [limiter.rateLimit(rlRegisterKey, LIMIT), dailyLimiter.dailyLimit],
+  before: [devSkippable(limiter.rateLimit(rlRegisterKey, LIMIT)), devSkippable(dailyLimiter.dailyLimit)],
 });
 router.route("POST", "/api/login", login, {
-  before: [limiter.rateLimit(rlLoginKey, LIMIT), dailyLimiter.dailyLimit],
+  before: [devSkippable(limiter.rateLimit(rlLoginKey, LIMIT)), devSkippable(dailyLimiter.dailyLimit)],
 });
 router.route("GET", "/api/bootstrap", bootstrap);
 router.route("GET", "/api/me", me, { auth: true });

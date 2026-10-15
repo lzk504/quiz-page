@@ -253,6 +253,51 @@ r = await call("POST", "/api/login", {
 });
 ok("不同 IP 不受限", r.status === 401, `实际 ${r.status}`);
 
+console.log("\n=== [20] 每日限额：未登录 IP 30 次/天（KV 替身，生产口径）===");
+// 内存 KV 替身挂到 env 上，真实走 rate-limit-daily.ts 的每日计数逻辑
+const kvMap = new Map<string, string>();
+(env as Env).RATE_LIMITS = {
+  async get(k: string) { return kvMap.get(k) ?? null; },
+  async put(k: string, v: string) { kvMap.set(k, v); },
+  async delete(k: string) { kvMap.delete(k); },
+  async list() {
+    return { keys: [...kvMap.keys()].map((name) => ({ name })), list_complete: true, cacheStatus: null };
+  },
+} as unknown as KVNamespace;
+
+const dailyIp = "203.0.113.77";
+const bjtDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().split("T")[0];
+const dailyKey = `UNAUTH:${dailyIp}:${bjtDate}`;
+let unlocked = 0;
+let lockedAt = 0;
+for (let i = 1; i <= 31; i++) {
+  _resetRateLimitForTest();          // 每轮清分钟级桶，只观察每日限额
+  const rr = await call("POST", "/api/login", {
+    body: { username: adminUser, password: "wrongPass99" },
+    headers: { "CF-Connecting-IP": dailyIp },
+  });
+  if (rr.status === 401) unlocked++;
+  else { lockedAt = i; break; }
+}
+ok("前 30 次登录放行（401 而非 429）", unlocked === 30, `实际放行 ${unlocked} 次`);
+ok("第 31 次被拦且为 429 daily_limit", lockedAt === 31, `实际在第 ${lockedAt} 次被拦`);
+ok("KV 计数停在 30（被拦时不写）", kvMap.get(dailyKey) === "30", `实际 ${kvMap.get(dailyKey)}`);
+
+_resetRateLimitForTest();
+const rrReg = await call("POST", "/api/register", {
+  body: { username: `daily_${rnd()}`, password: "Passw0rd1" },
+  headers: { "CF-Connecting-IP": dailyIp },
+});
+ok("注册与登录共用同一未登录桶", rrReg.status === 429 && rrReg.data?.error === "daily_limit", `实际 ${rrReg.status} ${JSON.stringify(rrReg.data)}`);
+
+_resetRateLimitForTest();
+const rrAuth = await call("POST", "/api/login", {
+  body: { username: adminUser, password: adminPw },
+  headers: { "CF-Connecting-IP": dailyIp, Authorization: `Bearer ${adminToken}` },
+});
+ok("带 token 时走 AUTH 桶，不被未登录桶拦", rrAuth.status === 200, `实际 ${rrAuth.status} ${JSON.stringify(rrAuth.data)}`);
+delete (env as Env).RATE_LIMITS;
+
 console.log(`\n========================================================`);
 console.log(`通过 ${passed}　失败 ${failed}`);
 process.exit(failed ? 1 : 0);

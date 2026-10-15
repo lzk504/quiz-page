@@ -231,7 +231,6 @@ const view: View = {
 
     root.innerHTML = `
       <div class="page-head">
-        <button class="page-head__back" id="banksBack" title="返回首页">‹</button>
         <h1 class="page-head__title">题库</h1>
         <span class="page-head__right">${getBanks().length} 个题库</span>
       </div>
@@ -258,7 +257,6 @@ const view: View = {
     `;
 
     /* ---------- 事件 ---------- */
-    root.querySelector("#banksBack")?.addEventListener("click", () => navigate("home"));
 
     root.querySelectorAll<HTMLButtonElement>(".bank-pill").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -290,8 +288,8 @@ const view: View = {
     });
 
     root.querySelector("#startMode")?.addEventListener("click", () => {
-      if (examMode) { navigate("practice", { mode: "exam", banks: activeBank }); return; }
-      navigate("practice", { banks: activeBank });
+      if (examMode) { navigate("exam", { banks: activeBank }); return; }
+      navigate("general-practice", { banks: activeBank });
     });
 
     bindChapters(root);
@@ -299,7 +297,7 @@ const view: View = {
     root.querySelectorAll<HTMLButtonElement>(".type-card").forEach((btn) => {
       btn.addEventListener("click", () => {
         const type = btn.dataset.type;
-        if (type) navigate("practice", { type, banks: activeBank });
+        if (type) navigate("general-practice", { type, banks: activeBank });
       });
     });
 
@@ -307,7 +305,7 @@ const view: View = {
       scope.querySelectorAll<HTMLButtonElement>(".chapter").forEach((btn) => {
         btn.addEventListener("click", () => {
           const domain = btn.dataset.domain;
-          if (domain) navigate("practice", { domain, banks: activeBank, from: "chapter" });
+          if (domain) navigate("chapter-practice", { domain, banks: activeBank });
         });
       });
     }

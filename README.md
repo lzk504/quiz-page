@@ -54,7 +54,7 @@ src/                         后端（TypeScript）
     storage.ts               Store 接口工厂（env.DB→D1Store）
     storage-schema.ts        D1 DDL + ensureSchema（首次请求幂等建表）
     storage-d1.ts            D1Store（registerUser 事务化）
-    rate-limit-daily.ts      KV 每日限额（未登录 9 次/登录 64 次，24h TTL）
+    rate-limit-daily.ts      KV 每日限额（未登录 30 次/登录 64 次，24h TTL）
 webapp/                      前端（TypeScript）
   index.html                 Vite 入口
   vite.config.ts             构建配置（outDir=../dist）
@@ -85,8 +85,10 @@ npm install
 # 配置本地 secrets（.dev.vars 已 gitignore）
 #   JWT_SECRET="...30+ 字符随机串..."
 #   ALLOW_DEV_RESET="1"        # 仅本地：启用 POST /api/dev/reset 清库
+#   DEV_UNLIMITED="1"          # 仅本地：跳过登录/注册限频（本地所有请求共用 127.0.0.1 限额桶，调试易撞满）
 echo 'JWT_SECRET="local-dev-secret-please-change-to-30-plus-random-chars-xxxxx"' > .dev.vars
 echo 'ALLOW_DEV_RESET="1"' >> .dev.vars
+echo 'DEV_UNLIMITED="1"' >> .dev.vars
 
 npm run dev            # wrangler dev（本地 D1 模拟），http://127.0.0.1:8787
 npm run dev:frontend   # 仅前端 Vite dev server（API 需另起）
@@ -178,7 +180,10 @@ meta         (key PK, value)
 | 层 | 实现 | 规则 |
 |---|---|---|
 | 分钟级（防爆破） | `ratelimit.ts` 内存固定窗口 | register / login 各 **10 次/分钟/IP** |
-| 每日级（控用量） | `rate-limit-daily.ts` + KV 计数 | 未登录 IP **9 次/天**；登录用户 **64 次/天**（北京时间按天，24h TTL 自动回收） |
+| 每日级（控用量） | `rate-limit-daily.ts` + KV 计数 | 未登录 IP **30 次/天**；登录用户 **64 次/天**（北京时间按天，24h TTL 自动回收） |
+
+> 本地调试：`.dev.vars` 里 `DEV_UNLIMITED="1"`（需配合 `ALLOW_DEV_RESET="1"`）可同时跳过两层限频，
+> 因为本地所有请求的 clientIp 都是 `127.0.0.1`，共用同一个限额桶，反复登录调试很容易撞满 429。
 
 - 每日计数存 KV（绑定 `RATE_LIMITS`，key 形如 `UNAUTH:<ip>:<日期>` / `AUTH:<userId>:<日期>`）
 - KV 未绑定时每日限频**静默放行**（限频是增强能力，不因缺绑定阻塞业务）
