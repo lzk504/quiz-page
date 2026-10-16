@@ -4,7 +4,8 @@
  *
  * 核心优化：
  * - 采用 WrongbookManager 统一管理错题与题库预加载，解决跨库错题被静默丢弃的问题；
- * - 动态根据真实数据统计题库与题型错题数（不硬编码任何数据）。
+ * - 动态根据真实数据统计题库与题型错题数（不硬编码任何数据）；
+ * - 错题列表分页（每页 10 条 + 页码器 + 总数展示），避免一次性渲染上百条卡片导致的卡顿。
  */
 
 import "./wrongbook.css";
@@ -22,6 +23,10 @@ import { WrongbookManager, type WrongItem } from "./practice-hub/wrongbook-manag
 let activeBank = "all";
 let activeType = "all";
 let batchMode = false;
+/** 当前页码（1-based）；筛选切换时重置回第 1 页，paint 内会按总页数 clamp */
+let page = 1;
+/** 每页错题条数（与考试结算页逐题解析区一致） */
+const PAGE_SIZE = 10;
 const checked = new Set<string>();
 
 const TYPE_FILTERS: Array<{ key: string; label: string }> = [
@@ -36,6 +41,37 @@ const TYPE_FILTERS: Array<{ key: string; label: string }> = [
 /** 答案文本截断（错因解析/简答参考答案可能很长） */
 function clip(text: string, max = 220): string {
   return text.length > max ? text.slice(0, max) + "…" : text;
+}
+
+/**
+ * 分页器：窄屏只留「上一页 / 下一页 + 共 N 题·第 X/Y 页」，宽屏展开页码（5 位滑动窗口 + 省略号）。
+ * 与考试结算页逐题解析区同款交互。
+ */
+function pagerHtml(cur: number, pages: number, total: number): string {
+  const btn = (n: number) =>
+    `<button type="button" class="wb-pager__num${n === cur ? " is-on" : ""}" data-page="${n}">${n}</button>`;
+  const gap = `<span class="wb-pager__gap">…</span>`;
+
+  let nums = "";
+  if (pages <= 7) {
+    for (let i = 1; i <= pages; i++) nums += btn(i);
+  } else {
+    let start = Math.max(1, cur - 2);
+    const end = Math.min(pages, start + 4);
+    start = Math.max(1, end - 4);
+    if (start > 1) nums += btn(1) + (start > 2 ? gap : "");
+    for (let i = start; i <= end; i++) nums += btn(i);
+    if (end < pages) nums += (end < pages - 1 ? gap : "") + btn(pages);
+  }
+
+  return `
+    <nav class="wb-pager" aria-label="错题列表分页">
+      <button type="button" class="wb-pager__btn" data-page="${cur - 1}" ${cur <= 1 ? "disabled" : ""}>‹ 上一页</button>
+      <span class="wb-pager__nums">${nums}</span>
+      <button type="button" class="wb-pager__btn" data-page="${cur + 1}" ${cur >= pages ? "disabled" : ""}>下一页 ›</button>
+      <span class="wb-pager__hint">共 ${total} 题 · 第 ${cur} / ${pages} 页</span>
+    </nav>
+  `;
 }
 
 function renderItem(it: WrongItem): string {
@@ -97,7 +133,7 @@ const view: View = {
       listBox.innerHTML = emptyState({
         icon: "✅",
         title: "错题本是空的",
-        desc: "刷题时答错的题目会自动收进这里，重做答对后可手动移出。",
+        desc: "刷题时答错的题目会自动收进这里，重做答对后会自动移出。",
         action: `<button class="btn btn--primary" id="wPractice">去刷题</button>`,
       });
       listBox.querySelector("#wPractice")?.addEventListener("click", () => navigate("general-practice", { fresh: "1" }));
@@ -141,22 +177,38 @@ const view: View = {
         </div>
 
         <p class="about" style="margin:12px 0 0">
-          答错自动收录，<b>重做答对后可手动移出错题本</b>；
+          答错自动收录，<b>重做答对后自动移出</b>；
           ${stats.total ? `历史共错过 ${stats.total} 题，已订正 ${stats.corrected} 题（${pct(stats.corrected, stats.total)}%）。` : ""}
         </p>
       </section>
       <div id="wbList"></div>
+      <div id="wbPager"></div>
       <div id="wbCta"></div>
     `;
 
     const listBox = root.querySelector<HTMLElement>("#wbList")!;
+    const pagerBox = root.querySelector<HTMLElement>("#wbPager")!;
     const ctaBox = root.querySelector<HTMLElement>("#wbCta")!;
 
-    const paint = (): void => {
+    /**
+     * 局部重绘错题列表（仅渲染当前页，避免一次性渲染上百条卡片导致的卡顿）。
+     * scroll=true 时把列表顶部滚入视野（翻页专用；勾选/收藏等重绘不打断当前视口）。
+     */
+    const paint = (scroll = false): void => {
       const filtered = WrongbookManager.getItems({ bankId: activeBank, type: activeType });
-      listBox.innerHTML = filtered.length
-        ? `<section class="card" style="padding:12px 16px">${filtered.map(renderItem).join("")}</section>`
+      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      page = Math.min(Math.max(1, page), pages);   // 兜底：移出/筛选后页码残留也不会白屏
+      const slice = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+      listBox.innerHTML = slice.length
+        ? `<section class="card" style="padding:12px 16px">${slice.map(renderItem).join("")}</section>`
         : emptyState({ icon: "🔍", title: "该筛选下暂无错题", desc: "换个题库或题型，或选择「全部题型」。" });
+
+      pagerBox.innerHTML = filtered.length
+        ? pages > 1
+          ? pagerHtml(page, pages, filtered.length)
+          : `<nav class="wb-pager" aria-label="错题列表分页"><span class="wb-pager__hint">共 ${filtered.length} 题</span></nav>`
+        : "";
 
       ctaBox.innerHTML = batchMode
         ? `<div class="sticky-cta">
@@ -169,6 +221,16 @@ const view: View = {
                ↻ 一键重做当前错题（${filtered.length} 道）
              </button>
            </div>`;
+
+      /* 翻页：改页码 → 重绘当前页 → 列表顶部对齐视口顶（尊重 prefers-reduced-motion） */
+      pagerBox.querySelectorAll<HTMLButtonElement>(".wb-pager [data-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const n = Number(btn.dataset.page);
+          if (btn.disabled || !Number.isFinite(n) || n === page || n < 1 || n > pages) return;
+          page = n;
+          paint(true);
+        });
+      });
 
       listBox.querySelectorAll<HTMLElement>(".wb-item").forEach((node) => {
         const id = node.dataset.id!;
@@ -224,6 +286,12 @@ const view: View = {
         toast(`已移出 ${n} 道题`, "ok");
         void view.render(root);
       });
+
+      if (scroll) {
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const top = listBox.getBoundingClientRect().top + window.scrollY - 8;
+        window.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
+      }
     };
 
     paint();
@@ -232,6 +300,7 @@ const view: View = {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".chip");
       if (!btn?.dataset.bank) return;
       activeBank = btn.dataset.bank;
+      page = 1;                       // 筛选变化 → 回到第 1 页
       void view.render(root);
     });
 
@@ -239,6 +308,7 @@ const view: View = {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".chip");
       if (!btn?.dataset.type) return;
       activeType = btn.dataset.type;
+      page = 1;                       // 筛选变化 → 回到第 1 页
       root.querySelectorAll<HTMLButtonElement>("#wbTypeChips .chip").forEach((b) => {
         b.classList.toggle("is-on", b.dataset.type === activeType);
       });

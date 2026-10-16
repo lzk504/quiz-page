@@ -3,7 +3,7 @@
  * 特性：
  *   - 错题池全量乱序入队（支持单题重做 qid 或指定题型 type）；
  *   - 即时反馈：提交后即时判分；
- *   - 错题订正专属交互：答对时提供【移出错题本】按钮，主动确认才移出；
+ *   - 错题订正专属交互：答对即自动移出错题本，无需用户二次确认（仅本模式生效）；
  *   - 隔离作答记录：未作答题绝不自显历史答案，支持上一题回看与前进；
  *   - 错题专属完成总结页：展示订正率、移出统计，支持再刷剩余错题或返回错题本。
  */
@@ -14,7 +14,7 @@ import { grade, isSelfJudged, type GradeResult } from "../../scoring";
 import { shuffle } from "../../goal";
 import { esc } from "../../utils";
 import { navigate } from "../../router";
-import { domainTag, typeTag, bankTag, emptyState, toast, confirmDialog, closeActiveDialog } from "../../ui";
+import { domainTag, typeTag, bankTag, emptyState, confirmDialog, closeActiveDialog } from "../../ui";
 import type { Question, View } from "../../types";
 import { renderQuestionBody, renderFeedbackCard, collectAnswer } from "./quiz-card";
 import { saveDraft, readDraft, clearDraft, sanitizeWrongDraft, type PracticeDraft } from "./draft";
@@ -29,6 +29,8 @@ interface WrongSession {
   userAnswer: unknown;
   stats: { answered: number; correct: number; wrongCleared: number };
   sessionAnswers: Map<string, { userAnswer: unknown; result: GradeResult }>;
+  /** 本次会话中被「答对自动移出」的题目（用于反馈卡状态回显） */
+  autoRemoved: Set<string>;
   done?: boolean;
 }
 
@@ -62,6 +64,7 @@ function createWrongSession(params: Record<string, string>): WrongSession {
     userAnswer: null,
     stats: { answered: 0, correct: 0, wrongCleared: 0 },
     sessionAnswers: new Map(),
+    autoRemoved: new Set<string>(),
     done: false,
   };
 }
@@ -72,18 +75,15 @@ function renderFeedback(q: Question): string {
 
   let extraHtml = "";
   if (s.result?.correct) {
-    const inWrongbook = !!getStore().wrongbook[q.id];
-    if (inWrongbook) {
-      extraHtml = `<div class="feedback__wrong-act" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--c-border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:13px;color:var(--c-ok)">★ 订正成功！可移出错题本</span>
-        <button class="btn btn--sm btn--ghost" id="pRemoveWrong" style="color:var(--c-bad);padding:2px 10px">移出错题本</button>
+    // 答对已在 finalize 中自动移出，这里只做状态回显（不再需要用户点确认）
+    const removedNow = s.autoRemoved.has(q.id);
+    const inBook = !!getStore().wrongbook[q.id];
+    const tip = removedNow
+      ? "✓ 订正成功，已自动移出错题本"
+      : inBook ? "✓ 本题已订正，仍可在错题本中重刷" : "✓ 已在错题本外";
+    extraHtml = `<div class="feedback__wrong-act" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--c-border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;color:var(--c-ok)">${tip}</span>
       </div>`;
-    } else {
-      extraHtml = `<div class="feedback__wrong-act" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--c-border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:13px;color:var(--c-muted)">✓ 已从错题本移出</span>
-        <button class="btn btn--sm" disabled style="padding:2px 10px;opacity:0.6">已移出</button>
-      </div>`;
-    }
   }
 
   return renderFeedbackCard(q, s.settled, s.awaitingJudge, s.result, s.userAnswer, extraHtml);
@@ -209,6 +209,15 @@ function finalize(q: Question, isCorrect: boolean): void {
   const s = W!;
   s.sessionAnswers.set(q.id, { userAnswer: s.userAnswer, result: s.result! });
   recordAnswer(q, s.userAnswer, isCorrect);
+
+  // 错题重刷专属：答对即自动移出错题本（无需二次确认）。
+  // 只写在本模式内，普通练习/章节/考试共用 recordAnswer 但不受影响。
+  if (isCorrect && getStore().wrongbook[q.id]) {
+    removeFromWrongbook(q.id);
+    s.autoRemoved.add(q.id);
+    s.stats.wrongCleared++;
+  }
+
   s.stats.answered++;
   if (isCorrect) s.stats.correct++;
 }
@@ -286,23 +295,7 @@ function bind(root: HTMLElement, q: Question): void {
   root.querySelector("#pJudgeOk")?.addEventListener("click", () => judgeSelf(root, q, true));
   root.querySelector("#pJudgeBad")?.addEventListener("click", () => judgeSelf(root, q, false));
 
-  /* 移出错题本确认 */
-  root.querySelector<HTMLButtonElement>("#pRemoveWrong")?.addEventListener("click", (e) => {
-    const btn = e.currentTarget as HTMLButtonElement;
-    if (removeFromWrongbook(q.id)) {
-      s.stats.wrongCleared++;
-      toast("已移出错题本", "ok");
-      btn.disabled = true;
-      btn.textContent = "已移出";
-      btn.style.color = "var(--c-muted)";
-      btn.style.opacity = "0.6";
-      const infoSpan = btn.parentElement?.querySelector("span");
-      if (infoSpan) {
-        infoSpan.textContent = "✓ 已从错题本移出";
-        infoSpan.style.color = "var(--c-muted)";
-      }
-    }
-  });
+  /* 移出错题本已改为答对自动执行（见 finalize），此处不再需要手动按钮 */
 
   /* 上一题 */
   root.querySelector<HTMLButtonElement>("#pPrev")?.addEventListener("click", () => {
@@ -363,7 +356,7 @@ function renderWrongSummary(root: HTMLElement): void {
       <div class="summary__label">本次错题订正正确率</div>
       <p class="about" style="text-align:center;margin:8px 0 14px">
         共订正 <b>${answered}</b> / ${total} 道题 · 答对 <b>${correct}</b> 题${
-          wrongCleared ? ` · 手动移出 <b>${wrongCleared}</b> 题` : ""
+          wrongCleared ? ` · 自动移出 <b>${wrongCleared}</b> 题` : ""
         }
       </p>
       <div class="kpi-row">

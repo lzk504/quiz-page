@@ -170,3 +170,37 @@
 }
 .sticky-cta .btn { box-shadow: var(--shadow); width: 100%; }
 
+/* ---------- 错题列表分页器（与考试结算页逐题解析区同款交互） ---------- */
+.wb-pager {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.wb-pager__btn {
+  min-height: 34px; padding: 6px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--card); color: var(--text-2);
+  font-size: 13px; cursor: pointer;
+  transition: background var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease);
+}
+.wb-pager__btn:active:not(:disabled) { opacity: 0.8; }
+.wb-pager__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.wb-pager__nums { display: flex; gap: 6px; }
+.wb-pager__num {
+  min-width: 34px; min-height: 34px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--card); color: var(--text-2);
+  font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.wb-pager__num:active { opacity: 0.8; }
+.wb-pager__num.is-on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.wb-pager__gap { padding: 0 2px; font-size: 13px; color: var(--text-3); }
+.wb-pager__hint { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 480px) {
+  /* 窄屏：只留「上一页 / 共 N 题·第 X/Y 页 / 下一页」，页码按钮隐藏 */
+  .wb-pager__nums { display: none; }
+  .wb-pager__btn { min-height: 38px; padding: 8px 16px; }
+}
+

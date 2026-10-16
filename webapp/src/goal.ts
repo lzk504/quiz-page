@@ -152,17 +152,19 @@ export function wrongLevel(wrongAttempts: number): "red" | "amber" | null {
 }
 
 /**
- * 今日推荐复习：仅在「当前错题本内」按领域聚合累计答错 ≥2 的题。
+ * 今日推荐复习：仅在「当前错题本内」按领域聚合本轮在册答错 ≥2 的题。
+ * 次数口径与错题本徽标一致（wrongbook.wrongCount，移出后重置），
+ * 不用 records.wrongAttempts（终身累计），保证两处档位不打架。
  * @param questions 全部已加载题目（错题可能跨库）
  */
 export function todayRecommended(questions: Question[], store: QuizStore | null | undefined): RecGroup[] {
-  const records = store?.records ?? {};
   const wrongbook = store?.wrongbook ?? {};
   const groups = new Map<string, { label: string; maxWrong: number; count: number }>();
 
   for (const q of questions) {
-    if (!wrongbook[q.id]) continue;
-    const attempts = records[q.id]?.wrongAttempts ?? 0;
+    const entry = wrongbook[q.id];
+    if (!entry) continue;
+    const attempts = entry.wrongCount ?? 0;
     if (attempts < WRONG_AMBER) continue;
     const g = groups.get(q.domain) ?? { label: questionDomainLabel(q), maxWrong: 0, count: 0 };
     g.maxWrong = Math.max(g.maxWrong, attempts);
