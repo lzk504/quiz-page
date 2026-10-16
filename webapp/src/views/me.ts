@@ -4,6 +4,7 @@
  * 统计口径：一律基于「全部已加载库」（getLoadedQuestions），否则跨库数据会被漏算。
  */
 
+import "./me.css";
 import { getBanks, getLoadedQuestions, getSelectedBanks, bankQuestionCount, getBank, bankShortName } from "../state";
 import { getStore } from "../storage";
 import { computeStats } from "../stats";

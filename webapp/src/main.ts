@@ -1,5 +1,6 @@
-import "@vant/icons/src/index.less";
-import "./style.css";
+// 图标字体：encode-woff2.less 为官方 base64 内嵌版（index.less 的 @font-face 指向远程 CDN，离线/内网会豆腐块）
+import "@vant/icons/src/encode-woff2.less";
+import "./css/index.css";
 
 import { loadBanks, on, getMeta, getQuestions, getBanks } from "./state";
 import { initStorage, getStore, isPersistent, setValidIds, flushStore,
@@ -41,6 +42,10 @@ import favorites from "./views/favorites";
 import stats from "./views/stats";
 import settings from "./views/settings";
 import login from "./views/login";
+
+// 响应式覆盖层：必须最后加载（在所有 view css 之后）。
+// 同特异性下"后到者赢"，媒体查询若先于业务基础规则注入会被反杀（拆分重构曾因此回归）。
+import "./css/responsive.css";
 
 /**
  * 自动化/调试钩子：暴露当前用户的存储 API 与刷题会话快照。

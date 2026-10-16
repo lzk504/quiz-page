@@ -4,6 +4,12 @@
 前端 TypeScript + **Vite** 构建。参考 [nodewarden](https://github.com/shuaiplus/nodewarden)
 的分层架构：可插拔存储、路由中间件、JWT 用户体系、D1 schema 首次请求自动初始化。
 
+> 当前形态：后端 `src/` 11 个 `.ts`（**零运行时依赖**，单 Worker、无 Durable Object）；
+> 前端 `webapp/src/` 32 个 `.ts`（约 7069 行，vanilla TS + Vite，构建产物到 `../dist`）。
+
+**快速索引**：[项目逻辑说明](#项目逻辑说明) ｜ [目录结构](#目录结构) ｜ [本地开发](#本地开发) ｜
+[构建与部署](#构建与部署) ｜ [API](#api) ｜ [测试](#测试) ｜ [维护题库](#维护题库) ｜ [更新日志](#更新日志)
+
 ## 技术栈
 
 | 层 | 选型 |
@@ -24,6 +30,13 @@
 - **考试模式**：60 分钟 100 题，作答过程零反馈，交卷后统一自评、出分、查看逐题清单与分题型得分；
   支持提前交卷（仅按已作答题计分，未作答不计分），中途退出即按已作答出分
 - **练习续刷**：普通练习中途退出自动保存本地草稿，下次进入可选择「继续上次」或「重新开始」
+- **章节断点续做**：章节练习不走本地草稿，改用云端 `records` 定位第一道未做题（跨设备有效）；
+  头部显示「已完成 X / N」与可视化进度条，口径与练习/考试完全隔离
+- **记忆模式**：普通 / 章节 / 错题三种练习均支持「上一题」回看与答题状态记忆（复习态不重复写记录）
+- **练习算法**：按掌握度与错题权重排序抽题（`smartPracticeSort`），章节按「未做题优先」排序（`chapterResumeSort`）
+- **答题卡**：通用半模态答题卡 `ExamCardSheet`，四种练习场景共用，支持跳题、已答/未答标记、当前题高亮
+- **考试结算看板**：Vant 风格结算页（总分、用时、分题型正确率进度条、逐题解析清单）
+- **视觉风格**：对齐 Vant（`@vant/icons`）风格，纯手写 CSS、无组件库依赖
 - **我的收藏**：题目卡片可星标收藏，收藏列表隐藏参考答案，支持取消收藏与单题重做
 - **题库 tab**：选库（单选，即刷题范围，章节/简介联动）、章节（领域）目录、题型说明；点击章节或题型直接进入练习
 - **错题本**：按题型筛选，展示「我的答案 / 正确答案 / 解析」，显示错因次数角标（≥2 次黄、≥3 次红），
@@ -38,6 +51,104 @@
 - **管理员能力**：生成/管理邀请码；导出全站全量备份（JSON）
 - **可选隐藏前端**：`HIDE_WEB_VAULT=1` 时前端 404，仅保留 API
 - **响应式**：移动优先（≤380px 优化），桌面端内容列限宽 720px
+
+## 项目逻辑说明
+
+> 这一章是给「接手开发」用的速查：搞清分层、模块职责、主链路与数据契约，
+> 就能直接定位要改的文件。细节契约仍以 [API](#api) 与 [维护题库](#维护题库) 两章为准（避免双写）。
+
+### 1. 分层与请求链路
+
+```
+浏览器
+  └─ src/index.ts        先判 HIDE_WEB_VAULT（非 /api 可整体 404）→ /api/* → ASSETS 静态兜底
+       └─ src/router.ts  注册式路由表 + requireAuth / requireAdmin 中间件 + 响应助手
+            └─ src/routes.ts   11 个 handler，register/login 额外包两层限流
+                 └─ src/services/storage*.ts   Store 工厂 → D1Store（唯一实现）
+                      └─ D1（users / invites / quiz_stores / meta）
+```
+
+- 后端只有一条链，**无 Durable Object、无队列**，全部逻辑在单 Worker 内同步 await。
+- 前端不直连 D1，只通过 `/api/*`；静态资源由平台直接服务（`dist/`）。
+- 前端壳层由 `webapp/src/router.ts` 的 **hash 路由** 驱动（无 history pushState），
+  未登录访问非 `login` 页会被重定向到 `#/login`。
+
+### 2. 前端模块地图
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 引导 | `main.ts` | 启动引导、注册全部路由、`window.__quiz` 调试钩子、`flushStore` 生命周期 |
+| 路由/壳层 | `router.ts` | hash 路由、登录守卫、顶栏/底栏 class 切换、视图挂载与卸载 |
+| 题库状态 | `state.ts` | 读 `banks.json` 清单、**按需加载**分库、选库（单选即刷题范围）、发布订阅 |
+| 存储同步 | `storage.ts` | 云端 store 内存 cache、`PUT` 800ms 防抖、`baseUpdatedAt` 乐观锁、409 合并、`flushStore` |
+| 跨设备同步 | `sync.ts` | 30s 轮询（仅页面可见时） |
+| 计算层 | `scoring.ts` / `stats.ts` / `goal.ts` | 判分（填空/简答返回 `null` 由用户自判）/ 统计口径 / 学习节奏与抽题排序 |
+| 本地偏好 | `local-prefs.ts` | 不上云的偏好（上次练习范围、主题） |
+| 迁移 | `migrate.ts` | store **v1 → v5** 迁移链与 id 重映射 |
+| UI 原子 | `ui.ts` / `utils.ts` | tag / 进度条 / 空态 / toast / `confirmDialog`；`APP_NAME = 考点精编` |
+| 页面视图 | `views/{home,banks,wrongbook,me,favorites,stats,settings,login}.ts` | 8 个页面，底部 4 tab = 首页/题库/错题本/我的 |
+| **刷题核心** | `views/practice-hub/`（9 个模块） | 见下表 |
+
+**`views/practice-hub/`**（原 `views/practice.ts` 1329 行**已删除**，拆分而来）：
+
+| 模块 | 职责 |
+|---|---|
+| `index.ts` | 统一出口 |
+| `quiz-card.ts` | 题干/选项/反馈渲染与答案采集（五种题型共用） |
+| `draft.ts` | 草稿读写，`general` / `chapter` / `wrong` 三键隔离 |
+| `general-practice.ts` | 普通练习（抽题上限 100、续刷、收藏、自判） |
+| `chapter-practice.ts` | 章节练习（按 `records` 断点续做、章节进度口径独立） |
+| `wrong-practice.ts` | 错题重做（进入时剪枝已移出错题） |
+| `exam.ts` | 考试模式（100 题 / 60 分钟、零反馈、交卷自评与出分） |
+| `exam-card.ts` | 通用答题卡半模态 `ExamCardSheet`（四种练习场景复用） |
+| `wrongbook-manager.ts` | 错题本单一事实源（统计、批量操作、角标） |
+
+刷题路由由 `router.ts` 代理分发：`practice?mode=exam` → exam、`mode=wrong` → wrong-practice、
+`from=chapter|domain` → chapter-practice，其余 → general-practice。
+
+### 3. 核心业务流程
+
+**① 抽题与排序**
+`banks.json` → `ensureBank()` 按需加载分库 → `state.getQuestions()` 取当前库题目 →
+按场景排序：普通练习 `smartPracticeSort`（截 100 题）、章节 `chapterResumeSort`（未做题在前、
+已做题在后，全量入队）、考试 `examPick` + `examBlueprint`（单选 50 / 多选 20 / 判断 17 / 填空 10 / 简答 3 = 100）。
+
+**② 作答与落库**
+`recordAnswer` → `grade()` 判分（单选/多选/判断自动；填空/简答返回 `null`，由用户在页面上自判）→
+写 `store.records` → **800ms 防抖** `PUT /api/store {store, baseUpdatedAt}` →
+云端较新返回 409 时拉远端 `mergeWithRemote`（按条目 `lastAt`/`addedAt` 新者胜）后重推 →
+页面隐藏/卸载前 `flushStore()` 兜底。
+
+**③ 草稿与断点续做**
+草稿键 `quizapp.draft.<general|chapter|wrong>.v1.<username>`，存 `{params, ids, index, settled}`。
+普通练习中途退出写草稿，再次进入弹「继续上次 / 重新开始」；**章节练习不走草稿**，
+改用云端 `records` 定位第一道未做题（跨设备有效）；错题草稿进入前会剪掉已移出错题本的题目。
+
+### 4. 数据模型与关键接口
+
+| 层 | 内容 |
+|---|---|
+| 云端 store（**v5**） | `records`（做题记录、`lastCorrect` 为最近一次结果）/ `wrongbook` / `favorites` / `profile.nickname`；迁移链 v1→v5 见 `migrate.ts` |
+| D1 | 四表与建表方式见 [D1 Schema](#d1-schema)，`ensureSchema` 首次请求幂等建表 |
+| KV（绑定 `RATE_LIMITS`） | **仅用于每日限额计数**：`UNAUTH:<ip>:<日期>`、`AUTH:<userId>:<日期>`，24h TTL |
+| localStorage | `quizapp.token.v1`、`quizapp.banks.v1`（选中库）、`quizapp.lastScope.v1`、`quizapp.theme.v1`、`quizapp.data.v1`（仅旧版上云迁移用）、`quizapp.draft.*` |
+| 接口清单 | 11 个端点见 [API](#api)；store 为 **纯 JSON 透传**（后端不解析业务字段，schema 由前端定义） |
+
+两条容易踩的口径：**正确率只取每题最近一次作答**（`records[id].lastCorrect`）；
+**错题本只增不减**（`recordAnswer` 只负责加入，移出只能由用户手动操作或批量清理）。
+
+### 5. 题库数据契约
+
+| 约定 | 说明 |
+|---|---|
+| 入口 | `webapp/public/data/banks.json`（清单）→ `bank-g/p/y.json`（按需加载） |
+| id | `<库前缀>-<题型字母><三位序号>`，如 `G-S001` / `P-M012`；库前缀 `G`/`P`/`Y`，题型字母 `S`单选 / `M`多选 / `J`判断 / `F`填空 / `A`简答 |
+| 规模 | 三库各 1000 题：单选 400 / 多选 200 / 判断 200 / 填空 100 / 简答 100 |
+| 领域 | **各库自治**：G → `health`/`language`/`society`/`science`/`art`/`general`；P → `A1`–`A5`；Y → `zongze`/`neirong`/`zuzhi`/`pingjia`（标签在清单 `domainLabels`） |
+| 填空 | 题干用 `____`（4 个下划线）标空，**空数必须等于 `answer` 项数**；`answer` 为参考答案数组，判定由用户自判 |
+| 禁区 | 不要复用已删除的 id（`S02/S05/S06`、`J04`、`F01-F16`、`SA01-SA08`），否则老用户历史记录会错位 |
+
+完整字段说明、加题步骤与校验命令见 [维护题库](#维护题库)。
 
 ## 目录结构
 
@@ -67,15 +178,31 @@ webapp/                      前端（TypeScript）
       migrate.ts / scoring.ts / stats.ts   数据迁移 v1→v2→v3→v4→v5 / 判分 / 统计口径
       goal.ts / local-prefs.ts            学习节奏计算 / 本机偏好（上次练习范围等）
       ui.ts / utils.ts / types.ts
-      views/{login,home,banks,me,practice,wrongbook,stats,settings,favorites}.ts
+      views/{login,home,banks,me,wrongbook,stats,settings,favorites}.ts   8 个页面视图
+      views/practice-hub/                刷题核心（原 views/practice.ts 已删除，拆分而来）
+        index.ts                           统一出口
+        quiz-card.ts                       题干/选项/反馈渲染与答案采集（五题型共用）
+        draft.ts                           草稿读写（general/chapter/wrong 三键隔离）
+        general-practice.ts                普通练习
+        chapter-practice.ts                章节练习（按 records 断点续做）
+        wrong-practice.ts                  错题重做
+        exam.ts                            考试模式（100 题/60 分钟）
+        exam-card.ts                       通用答题卡半模态 ExamCardSheet
+        wrongbook-manager.ts               错题单一事实源
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
 wrangler.toml                Worker 配置（D1 + KV 限额计数 + assets）
 scripts/
-  api-test.ts                API 冒烟测试（tsx 运行，44 断言，MockStore）
-  e2e-check.js               端到端测试入口（运行 `_verify-v6.mjs`）
-  _verify-v6.mjs             v6 真实浏览器端到端验证（Puppeteer，82 断言，需 wrangler dev）
+  api-test.ts                API 冒烟测试（tsx + MockStore，无需起服务）
+  e2e-check.js               端到端测试入口（spawn `_verify-v6.mjs`）
+  _verify-v6.mjs             v6 真实浏览器端到端验证（Puppeteer + 本机 Chrome，需 wrangler dev）
+  test-sorting.ts            goal.ts 抽题排序单测（tsx 运行）
+  verify-chapter-plan.mjs    章节练习专项 e2e（打 8788，Windows 本机专用）
+  review_report.md           题库校对报告
   *.py                       题库生成/校验脚本（本地工具链，已 gitignore，不入库）
 ```
+
+> 各脚本的命令与期望输出见 [测试](#测试)。
+> ⚠️ `.gitignore` 含 `scripts/` 整目录规则：已跟踪的脚本仍在库内，但**新增脚本须 `git add -f`**。
 
 ## 本地开发
 
@@ -192,13 +319,29 @@ meta         (key PK, value)
 ## 测试
 
 ```bash
-npm test                # API 冒烟测试（tsx + MockStore，44 断言，无需起服务）
-npm run dev &           # 起 wrangler dev（本地 D1 模拟）
-npm run e2e             # 端到端（Puppeteer + 本机 Chrome，110 断言）
+npm test                # API 冒烟（tsx + MockStore，50 断言，无需起服务）
+npm run e2e             # 端到端（Puppeteer + 本机 Chrome，128 处 ok()，运行时约 132 条，需先起服务）
+
+# 抽题排序单测（goal.ts 的 smartPracticeSort / chapterOrderSort）
+npx tsx scripts/test-sorting.ts
+
+# 章节练习专项 e2e（打 8788 沙箱，Windows 本机专用，截图落 scripts/_shots/）
+node scripts/verify-chapter-plan.mjs
 
 # 题库结构与配比校验（本地工具链，已 gitignore）
 C:/Users/lzk_7/miniconda3/python.exe scripts/validate_questions.py --quiet
 ```
+
+e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... npm run e2e`
+指向任意部署做验证。**推荐用独立沙箱**避免污染本地调试数据：
+
+```bash
+npx wrangler dev --port 8788 --persist-to .wrangler/_verify   # 另开一个终端
+E2E_TARGET=http://127.0.0.1:8788 npm run e2e
+```
+
+> ⚠️ **不要裸跑 `npm run e2e` 直连你自己的 8787 dev 实例**：`_verify-v6.mjs` 第一步就是
+> `POST /api/dev/reset`，会清空本地 `users` / `invites` / `quiz_stores` / `meta`。
 
 e2e 覆盖：未登录重定向、首用户注册（自动 admin）、标题固定「考点精编」、四 tab 壳层、
 首页（今日目标/快捷入口/备考科目/今日推荐复习）、题库 tab（单选选库即刷题范围/章节/题型/隐藏库编号）、
@@ -206,9 +349,6 @@ e2e 覆盖：未登录重定向、首用户注册（自动 admin）、标题固�
 提前交卷仅按已作答计分/退出按已作答出分）、错题本（题型筛选/重做/高频角标）、
 个人中心/功能设置/昵称（设置·首页问候语·云端同步）、数据报告、响应式 6 档宽度、控制台零错误、
 v3→v5 迁移（补 `favorites` 与 `profile` 字段）。
-
-e2e 默认打 `http://127.0.0.1:8787`，也可用 `E2E_TARGET=https://... npm run e2e`
-指向任意部署做验证。
 
 ## 维护题库
 
@@ -242,6 +382,27 @@ data/bank-y.json   《幼儿园教育指导纲要》
 
 ## 更新日志
 
+### 进行中 / 未提交（工作区快照，HEAD = `3be9ece`）
+
+- （未提交）**考试模式 Vant 化下半场**：新增 `views/practice-hub/exam-card.ts`（134 行，
+  通用答题卡半模态 `ExamCardSheet`，普通/章节/错题/考试四类场景复用，支持跳题、已答标记与交卷）；
+  `views/practice-hub/exam.ts` 重写 +338/-116（`exam-v2` 头部与进度条、`#examOpenSheet` 答题卡入口、
+  `exam-result-hero` 深色结算看板、`exam-review-item` 逐题解析清单）；
+  `webapp/src/style.css` +534（Vant 视觉 token 与上述组件样式）。
+  ⚠️ 尚未提交，**不要基于这些 DOM 写新断言**。
+
+### 已发布版本
+
+- v6.4（2026-10-15/16）：**章节断点续做与刷题内核拆分**——章节练习改用云端 `records` 定位第一道
+  未做题（跨设备有效，进度显示「已完成 X / N」，与普通练习的题位式口径隔离）；修复「接着做题」题目定位、
+  章节无法继续做题、章节进度条计数（提交 `51a0b1d` / `abef2cc` / `b797ec6` / `b061bd6`）；
+  抽题排序算法调整并新增 `scripts/test-sorting.ts` 与 `scripts/verify-chapter-plan.mjs`（`df28aac`）；
+  修复考试模式判断题选项不高亮（`33d7334`）。
+- v6.3（2026-10-16）：**practice-hub 拆分 + Vant 视觉**——删除 1329 行的 `views/practice.ts`，
+  拆为 `views/practice-hub/` 9 个模块（general / chapter / wrong 三种练习 + exam +
+  共享 `quiz-card` / `draft` / `wrongbook-manager` / `exam-card`），旧路由 `practice` 由 `router.ts`
+  向前兼容代理；UI 视觉风格改为 Vant；「记忆模式」覆盖普通/章节/错题练习（提交 `3be9ece`）。
+  api-test 50 断言、`_verify-v6.mjs` 128 处 `ok()`（运行时约 132 条）。
 - v6.2（2026-10-14）：**功能设置与昵称**——移除「设置考试日期」与「备考设置」盒子（含首页开考
   倒计时、`local-prefs` 考试日期存储、`goal.daysUntil`）；「学习设置」更名**功能设置**；
   账号区新增**昵称**（云端同步，首页问候语与头像优先使用，未设置回退用户名）；数据升到 **v5**
@@ -274,3 +435,13 @@ data/bank-y.json   《幼儿园教育指导纲要》
   路由中间件化、内置限流。
 - v2（2026-10-04）：题库重构为 68 题 + UI 现代化精修 + 数据 v1→v2 迁移。
 - v1（2026-10-01）：首版。
+
+### 待办与技术债
+
+- [ ] **修复 `scripts/_verify-v6.mjs` 考试结算段的选择器漂移**：脚本第 249/281/287/295/317/318/319/321/329 行
+      仍断言 `#examSubmit2` / `.exam-score` / `.exam-score__label` / `.exam-row` / `.exam-row--skip`，
+      而当前 `exam.ts` 只有 `#examSubmit`，结算页改用 `.exam-v2-*` / `.exam-result-*` / `.exam-review-item*`——
+      **该段 e2e 当前必然失败**，需按新 DOM 同步更新（改视图前先 grep 这个脚本）。
+- [ ] `views/practice-hub/` 缺独立单元测试，目前只有 `scripts/test-sorting.ts` 覆盖抽题排序。
+- [ ] `.gitignore` 含 `scripts/` 整目录规则，新增脚本入库须 `git add -f`。
+- [ ] `scripts/verify-chapter-plan.mjs` 硬编码本机 Chrome 路径与 8788 端口，仅 Windows 本机可用，非 CI 可移植。

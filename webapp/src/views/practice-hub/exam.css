@@ -1,0 +1,511 @@
+/* ---------- 考试模式 ---------- */
+.exam-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: var(--sp-3);
+}
+.exam-timer {
+  flex: none; font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 4px 11px; border-radius: var(--r-pill);
+  background: var(--primary-soft); color: var(--primary);
+}
+.exam-timer.is-warn { background: var(--bad-soft); color: var(--bad); }
+.exam-progress { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.exam-progress b { color: var(--text); font-size: 16px; }
+
+.exam-judge { display: flex; flex-direction: column; gap: 12px; }
+.exam-judge__item {
+  border: 1.5px solid var(--line); border-radius: var(--r);
+  background: var(--card); padding: 13px 14px;
+}
+.exam-judge__item.is-done { border-color: var(--primary-100); background: var(--primary-soft); }
+.exam-judge__item .stem { font-size: 15px; margin-bottom: 10px; }
+.exam-judge__btns { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
+.exam-judge__hint { font-size: 12px; color: var(--text-3); margin: 8px 0 0; text-align: center; }
+
+.exam-score {
+  font-size: 46px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: var(--primary-grad);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.exam-score small { font-size: 17px; font-weight: 500; color: var(--text-3); -webkit-text-fill-color: var(--text-3); }
+.exam-score__label { text-align: center; font-size: 14px; color: var(--text-2); margin-bottom: 18px; }
+.exam-table { display: flex; flex-direction: column; }
+.exam-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--line-2); font-size: 13px;
+}
+.exam-row:last-child { border-bottom: none; }
+.exam-row__idx { flex: none; width: 30px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.exam-row__mine { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.exam-row__right { flex: none; color: var(--text-3); max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exam-row__mark { flex: none; width: 18px; text-align: center; font-weight: 700; }
+.exam-row--ok .exam-row__mark { color: var(--ok); }
+.exam-row--bad .exam-row__mark { color: var(--bad); }
+.exam-row--skip .exam-row__mark { color: var(--text-3); }
+
+
+/* ==========================================================================
+   考试模式全新 Vant 风格 UI、答题卡组件与结算报告页面样式
+   ========================================================================== */
+
+
+/* ---------- 考试主界面 Header 与 导航 ---------- */
+.exam-v2-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  position: relative;
+}
+.exam-v2-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #f2f3f5;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4e5969;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.exam-v2-close:active {
+  opacity: 0.7;
+}
+.exam-v2-titles {
+  text-align: center;
+  flex: 1;
+  padding: 0 8px;
+  min-width: 0;
+}
+.exam-v2-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main, #1d2129);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exam-v2-subtitle {
+  font-size: 12px;
+  color: var(--text-sub, #86909c);
+  margin: 2px 0 0;
+}
+.exam-v2-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  background: #ffebeb;
+  color: #f53f3f;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.exam-v2-timer.is-warn {
+  background: #ff4d4f;
+  color: #ffffff;
+  animation: pulse 1s infinite;
+}
+
+/* ---------- 细进度条与答题卡入口行 ---------- */
+.exam-v2-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px 12px;
+  gap: 12px;
+}
+.exam-v2-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #f2f3f5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.exam-v2-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff7d7d, #f53f3f);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+.exam-v2-progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.exam-v2-progress-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub, #86909c);
+  font-variant-numeric: tabular-nums;
+}
+.exam-v2-sheet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #f2f3f5;
+  border: none;
+  font-size: 12px;
+  color: #4e5969;
+  cursor: pointer;
+  font-weight: 500;
+}
+.exam-v2-sheet-btn:active {
+  opacity: 0.7;
+}
+
+/* ---------- 黄色说明提示框 ---------- */
+.exam-tip-card {
+  background: #fdf6ec;
+  border: 1px solid #faecd8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #b88230;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.exam-tip-card .van-icon {
+  font-size: 15px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* ---------- 吸底三操作栏 ---------- */
+.exam-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-card, #ffffff);
+  border-top: 1px solid var(--border, #edf0f5);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 10px;
+  z-index: 100;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.exam-bottom-bar .btn--nav {
+  height: 44px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #dcdfe6;
+  color: #303133;
+  font-weight: 600;
+  font-size: 14px;
+}
+.exam-bottom-bar .btn--nav:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f5f7fa;
+}
+.exam-bottom-bar .btn--submit {
+  height: 44px;
+  border-radius: 12px;
+  background: #111827;
+  border: none;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 15px;
+}
+.exam-bottom-bar .btn--submit:active {
+  opacity: 0.85;
+}
+
+/* ---------- 考试结算页面全新出分看板 ---------- */
+.exam-result-hero {
+  background: #141724;
+  color: #ffffff;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 16px rgba(20, 23, 36, 0.15);
+}
+.exam-result-hero__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e6eb;
+}
+.exam-result-hero__title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 78%;
+}
+.exam-result-hero__tag {
+  background: rgba(255, 255, 255, 0.14);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #f2f3f5;
+}
+.exam-result-hero__score-row {
+  margin: 14px 0 6px;
+  display: flex;
+  align-items: baseline;
+}
+.exam-result-hero__score {
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+.exam-result-hero__total {
+  font-size: 14px;
+  color: #86909c;
+  margin-left: 6px;
+}
+.exam-result-hero__comment {
+  color: #f7ba2a;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 18px;
+  line-height: 1.45;
+}
+.exam-result-hero__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 14px;
+  text-align: center;
+}
+.exam-result-hero__num {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+.exam-result-hero__label {
+  font-size: 12px;
+  color: #86909c;
+  margin-top: 2px;
+}
+
+/* ---------- 各题型正确率卡片 ---------- */
+.exam-result-type-card {
+  padding: 16px 18px;
+  background: var(--bg-card, #ffffff);
+  border-radius: 14px;
+  margin-bottom: 14px;
+}
+.exam-result-type-row {
+  margin-bottom: 12px;
+}
+.exam-result-type-row:last-child {
+  margin-bottom: 0;
+}
+.exam-result-type-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-main, #1d2129);
+  margin-bottom: 6px;
+}
+.exam-result-type-slot {
+  height: 6px;
+  background: #f2f3f5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.exam-result-type-fill {
+  height: 100%;
+  background: #409eff;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ---------- 逐题解析区域 ---------- */
+.exam-result-review-card {
+  background: var(--bg-card, #ffffff);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+}
+.exam-result-review-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+.exam-result-review-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main, #1d2129);
+}
+.exam-result-review-hint {
+  font-size: 12px;
+  color: var(--text-sub, #86909c);
+}
+.exam-review-item {
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #ffffff;
+}
+.exam-review-item:last-child {
+  margin-bottom: 0;
+}
+.exam-review-item__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.exam-review-item__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1d2129;
+}
+.exam-review-item__badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.exam-review-item__badge--ok {
+  background: #e8ffea;
+  color: #00b42a;
+}
+.exam-review-item__badge--bad {
+  background: #ffece8;
+  color: #f53f3f;
+}
+.exam-review-item__stem {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #1d2129;
+  margin-bottom: 10px;
+}
+.exam-review-item__compare {
+  background: #f7f8fa;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.exam-review-item__mine {
+  color: #4e5969;
+}
+.exam-review-item__right {
+  color: #00b42a;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.exam-review-item__analysis {
+  font-size: 13px;
+  color: #4e5969;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.exam-review-item__point {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f2f3f8;
+  color: #4f46e5;
+  font-size: 12px;
+}
+
+/* ---------- 逐题解析区：筛选 chips + 分页器（增量追加，2026-10-16） ---------- */
+/* 结算页（题型卡与解析卡）沿用既有硬编码浅色，这里局部锁定 token，
+   避免深色主题下新控件与浅色卡片互相跳色（不改变任何已有元素的外观）。 */
+.exam-result-type-card,
+.exam-result-review-card {
+  --card: #ffffff;
+  --card-2: #f2f3f5;
+  --line: #ebedf0;
+  --text: #323233;
+  --text-2: #646566;
+  --text-3: #969799;
+  --primary-100: #e8f3fe;
+  --primary-700: #045bb3;
+}
+.exam-result-type-title {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 15px; font-weight: 700; margin: 0 0 14px; color: var(--text);
+}
+.exam-result-type-hint { font-size: 12px; font-weight: 400; color: var(--text-3); }
+
+/* 可点击的题型正确率行（点击 = 按该题型筛选下方解析） */
+.exam-result-type-row.is-clickable {
+  cursor: pointer;
+  padding: 6px 8px;
+  margin: 0 -8px 8px;
+  border-radius: var(--r);
+  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.exam-result-type-row.is-clickable:last-child { margin-bottom: 0; }
+.exam-result-type-row.is-clickable:hover { background: var(--card-2); }
+.exam-result-type-row.is-clickable:active { background: var(--line); }
+.exam-result-type-row.is-clickable.is-on {
+  background: var(--primary-100);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.exam-result-type-row.is-clickable.is-on .exam-result-type-meta { color: var(--primary-700); font-weight: 600; }
+.exam-result-type-row.is-clickable:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* 解析区筛选条 */
+.exam-review-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+
+/* 分页器 */
+.exam-pager {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.exam-pager__btn {
+  min-height: 34px; padding: 6px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--card); color: var(--text-2);
+  font-size: 13px; cursor: pointer;
+  transition: background var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease);
+}
+.exam-pager__btn:active:not(:disabled) { opacity: 0.8; }
+.exam-pager__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.exam-pager__nums { display: flex; gap: 6px; }
+.exam-pager__num {
+  min-width: 34px; min-height: 34px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--card); color: var(--text-2);
+  font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.exam-pager__num:active { opacity: 0.8; }
+.exam-pager__num.is-on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.exam-pager__gap { padding: 0 2px; font-size: 13px; color: var(--text-3); }
+.exam-pager__hint { font-size: 12px; color: var(--text-3); }
+
+@media (max-width: 480px) {
+  /* 窄屏：只留「上一页 / 第 X/Y 页 / 下一页」，页码按钮隐藏 */
+  .exam-pager__nums { display: none; }
+  .exam-pager__btn { min-height: 38px; padding: 8px 16px; }
+  .exam-review-filters .chip { min-height: 38px; padding: 6px 14px; }
+}
+
+@media (min-width: 768px) {
+  /* 宽屏已有具体页码，隐藏冗余的「第 X/Y 页」 */
+  .exam-pager__hint { display: none; }
+}
+

@@ -8,6 +8,7 @@
  *  - 点章节行始终进入**练习模式**（考试模式必须走顶部「开始模拟考试」）。
  */
 
+import "./banks.css";
 import {
   getBanks, getBank, isBankLoaded, isBankFailed, ensureBank,
   getSelectedBanks, setSelectedBanks, getLoadedQuestions, questionDomainLabel, typeLabels,

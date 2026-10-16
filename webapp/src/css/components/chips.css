@@ -1,0 +1,41 @@
+/* ---------- 筛选 chip (Vant Tag 风格) ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chip {
+  display: inline-flex; align-items: center;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  font-size: 13px; color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--dur-1) var(--ease);
+  user-select: none;
+}
+.chip:active { opacity: 0.8; }
+.chip.is-on {
+  background: var(--primary); border-color: var(--primary);
+  color: #fff; font-weight: 500;
+}
+.chip__n { opacity: 0.75; font-size: 11px; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.chip.is-on .chip__n { opacity: 0.9; }
+
+.filter-summary {
+  margin-top: 14px; padding-top: 13px;
+  border-top: 1px dashed var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: 13.5px; color: var(--text-2);
+}
+.filter-summary b { color: var(--primary); font-size: 15px; }
+
+
+/* ---------- 同步状态徽标（顶栏可用） ---------- */
+.sync-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--primary-100); color: var(--primary);
+}
+.sync-badge--err { background: var(--bad-soft); color: var(--bad); }
+.sync-badge--pend { background: var(--warn-soft); color: var(--warn); }
+

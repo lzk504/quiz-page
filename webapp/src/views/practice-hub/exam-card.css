@@ -1,0 +1,152 @@
+/* ---------- 答题卡弹窗 ExamCardSheet ---------- */
+.exam-card-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.exam-card-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.exam-card-sheet {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  background: var(--bg-card, #ffffff);
+  border-radius: 20px 20px 0 0;
+  transform: translateY(100%);
+  transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -4px 28px rgba(0, 0, 0, 0.15);
+}
+.exam-card-sheet.is-visible {
+  transform: translateY(0);
+}
+.exam-card-sheet__head {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border, #edf0f5);
+}
+.exam-card-sheet__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.exam-card-sheet__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main, #1d2129);
+}
+.exam-card-sheet__close {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f2f3f5;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #4e5969;
+  font-size: 14px;
+  transition: opacity 0.15s;
+}
+.exam-card-sheet__close:active {
+  opacity: 0.7;
+}
+.exam-card-sheet__sub {
+  font-size: 13px;
+  color: var(--text-sub, #86909c);
+  margin-top: 6px;
+}
+.exam-card-sheet__body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+.exam-card-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.exam-card-cell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s;
+}
+.exam-card-cell:active {
+  transform: scale(0.92);
+}
+.exam-card-cell.is-unanswered {
+  background: #f2f3f8;
+  color: #4e5969;
+}
+.exam-card-cell.is-answered {
+  background: #eef0ff;
+  color: #4f46e5;
+}
+.exam-card-cell.is-current {
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.35);
+}
+.exam-card-legend {
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--text-sub, #86909c);
+  align-items: center;
+  padding-left: 2px;
+}
+.exam-card-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.exam-card-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.exam-card-legend__item.is-current .exam-card-legend__dot { background: #4f46e5; }
+.exam-card-legend__item.is-answered .exam-card-legend__dot { background: #b8c1fc; }
+.exam-card-legend__item.is-unanswered .exam-card-legend__dot { background: #e2e5ec; }
+
+.exam-card-sheet__foot {
+  padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border, #edf0f5);
+  background: var(--bg-card, #fff);
+}
+.exam-card-sheet__submit {
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  background: #111827;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+}
+.exam-card-sheet__submit:active {
+  opacity: 0.85;
+}
+

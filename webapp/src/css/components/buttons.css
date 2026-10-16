@@ -1,0 +1,61 @@
+/* ---------- 按钮 (Vant Button 规范) ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card); color: var(--text);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  box-sizing: border-box;
+  transition: opacity var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
+  position: relative;
+}
+.btn:active {
+  opacity: 0.8;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+/* 主要按钮 (Primary) */
+.btn--primary {
+  background: var(--primary); border-color: var(--primary); color: #fff;
+}
+.btn--primary:active {
+  background: var(--primary-600); border-color: var(--primary-600);
+}
+
+/* 朴素/文本幽灵按钮 */
+.btn--ghost {
+  background: transparent; border-color: transparent; color: var(--primary); font-weight: 500;
+}
+.btn--ghost:active {
+  opacity: 0.7;
+}
+
+/* 危险按钮 (Danger) */
+.btn--danger {
+  color: var(--bad); border-color: var(--bad); background: var(--card);
+}
+.btn--danger:active {
+  background: var(--bad-soft);
+}
+
+.btn--block { display: flex; width: 100%; }
+.btn--sm { min-height: 34px; padding: 0 12px; font-size: 12.5px; border-radius: var(--r-sm); }
+
+.hero .btn {
+  background: #fff; color: var(--primary); border-color: #fff;
+  font-weight: 600; box-shadow: var(--shadow-sm);
+}
+.hero .btn:active {
+  opacity: 0.85;
+}
+.hero .btn--block { width: 100%; }
+
+
+/* ---------- 自判按钮 ---------- */
+.self-judge { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.btn--ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn--ok:active { background: #18844b; }
+.btn--bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn--bad:active { background: #c73f3f; }
+

@@ -8,6 +8,7 @@
  *  - 各库进度一律基于「全部已加载库」（getLoadedQuestions），不能用 getQuestions（只含刷题范围）。
  */
 
+import "./home.css";
 import {
   getBanks, getLoadedQuestions, getQuestion, bankQuestionCount, isBankLoaded, ensureBank,
   questionDomainLabel, typeLabels, getBank, bankShortTitle, bankShortName,

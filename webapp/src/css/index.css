@@ -1,0 +1,15 @@
+/* ==========================================================================
+   全局基础样式与通用组件聚合入口
+   ========================================================================== */
+
+/* 1. Base 基础层 */
+@import "./base/variables.css";
+@import "./base/reset.css";
+@import "./base/layout.css";
+
+/* 2. Components 通用组件层 */
+@import "./components/buttons.css";
+@import "./components/cards.css";
+@import "./components/forms.css";
+@import "./components/chips.css";
+@import "./components/modal.css";

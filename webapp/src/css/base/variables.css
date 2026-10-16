@@ -1,0 +1,95 @@
+/* ==========================================================================
+   考点精编 — 样式
+   Vant 移动端风格 · 经典商务蓝 · 触控弹性 · 极简圆角卡片 · 深色模式支持
+   ========================================================================== */
+
+:root {
+  /* Vant 官方经典色彩系统 (Light) */
+  --bg:          #f7f8fa;              /* Vant 背景灰 */
+  --card:        #ffffff;              /* 卡片白底 */
+  --card-2:      #f2f3f5;              /* 次级背景 */
+  --primary:     #1989fa;              /* Vant 标志性品牌蓝 */
+  --primary-600: #0570db;              /* Active 状态 */
+  --primary-700: #045bb3;              /* 强调色 */
+  --primary-100: #e8f3fe;              /* 极浅蓝 */
+  --primary-soft:#e8f3fe;
+  --primary-grad: linear-gradient(135deg, #39a9ed 0%, #1989fa 100%);
+  --violet-soft: #f2f3f5;
+  --gold:        #ff976a;              /* Vant 警告橙 */
+  --gold-soft:   #fff5ed;
+  --ok:          #07c160;              /* Vant 成功绿 */
+  --ok-soft:     #edfbf3;
+  --bad:         #ee0a24;              /* Vant 危险红 */
+  --bad-soft:    #fef0f0;
+  --warn:        #ff976a;
+  --warn-soft:   #fff5ed;
+  --text:        #323233;              /* Vant 主要文字 */
+  --text-2:      #646566;              /* Vant 常规次要文字 */
+  --text-3:      #969799;              /* Vant 占位/失效文字 */
+  --line:        #ebedf0;              /* Vant 基础边框分割线 */
+  --line-2:      #f2f3f5;              /* Vant 浅色分割线 */
+
+  /* 阴影：Vant 极简移动浅投影 */
+  --shadow-sm: 0 1px 3px rgba(100, 101, 102, 0.08);
+  --shadow:    0 2px 8px rgba(100, 101, 102, 0.12);
+  --shadow-lg: 0 4px 16px rgba(100, 101, 102, 0.16);
+
+  /* 圆角：Vant 经典圆角矩阵 */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r:    8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* 间距 */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;
+  --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+
+  /* 动效 */
+  --ease:     cubic-bezier(.25, .1, .25, 1);
+  --ease-pop: cubic-bezier(.18, .89, .32, 1.28);
+  --dur-1: .15s;
+  --dur-2: .25s;
+  --dur-3: .3s;
+
+  --tabbar-h: 50px;
+  --maxw: 750px;
+  --font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica,
+          Segoe UI, Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  /* 别名：exam/exam-card/wrongbook 使用的语义化变量 → 映射到全局 token，深色模式自动跟随 */
+  --bg-card:   var(--card);
+  --text-main: var(--text);
+  --text-sub:  var(--text-2);
+}
+
+/* ---------- 深色模式 (Vant Dark Theme) ---------- */
+html[data-theme="dark"] {
+  --bg:          #121212;
+  --card:        #1e1e1e;
+  --card-2:      #262626;
+  --primary:     #1989fa;
+  --primary-600: #39a9ed;
+  --primary-700: #5cb8f8;
+  --primary-100: rgba(25, 137, 250, 0.18);
+  --primary-soft:rgba(25, 137, 250, 0.18);
+  --primary-grad: linear-gradient(135deg, #1989fa 0%, #0570db 100%);
+  --violet-soft: #262626;
+  --gold:        #ff976a;
+  --gold-soft:   rgba(255, 151, 106, 0.18);
+  --ok:          #07c160;
+  --ok-soft:     rgba(7, 193, 96, 0.18);
+  --bad:         #ee0a24;
+  --bad-soft:    rgba(238, 10, 36, 0.18);
+  --warn:        #ff976a;
+  --warn-soft:   rgba(255, 151, 106, 0.18);
+  --text:        #f5f5f5;
+  --text-2:      #a8a8a8;
+  --text-3:      #707070;
+  --line:        #333333;
+  --line-2:      #2a2a2a;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow:    0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.6);
+}

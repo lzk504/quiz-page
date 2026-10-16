@@ -1,0 +1,36 @@
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-x: clip;               /* 横向滚动兜底（不破坏 sticky） */
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--primary); text-decoration: none; }
+svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+
+/* ---------- 无障碍 / 减少动效 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.opt:focus-visible, .judge__btn:focus-visible { outline-offset: 0; }
+
+/* hidden 属性兜底：带 display 的作者样式（如 .field{display:flex}）会覆盖 UA 的 [hidden] 规则 */
+[hidden] { display: none !important; }
+

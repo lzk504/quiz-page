@@ -1,0 +1,106 @@
+/* ==========================================================================
+   响应式覆盖层（全局）
+   ⚠️ 必须由 main.ts 最后加载（在所有 view css 之后）。
+   同特异性下"后到者赢"：媒体查询若先于业务基础规则注入会被反杀，
+   因此所有跨组件/跨页面的响应式覆盖集中收口于此，还原旧单文件
+   style.css "基础规则在前、媒体覆盖在文件末尾"的层叠语义。
+   来源：A/B/C 自 css/base/layout.css 迁入；D 自 views/home.css 迁入。
+   ========================================================================== */
+
+/* ---------- A. 桌面端（≥768px） ---------- */
+@media (min-width: 768px) {
+  .app { padding: 22px 20px calc(var(--tabbar-h) + 34px); }
+  .card { padding: 22px 24px; transition: box-shadow var(--dur-2) var(--ease); }
+  .hero { padding: 26px 26px 24px; }
+  .hero__title { font-size: 22px; }
+
+  /* 主卡内双列：左题库选择 / 右统计入口（DOM 顺序相反，用 grid-area 视觉对调） */
+  .hero__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(0, .82fr);
+    grid-template-areas: "banks stats";
+    gap: var(--sp-5);
+    align-items: start;
+  }
+  .hero__col--banks { grid-area: banks; }
+  .hero__col--stats { grid-area: stats; }
+  /* 右列变窄 → 统计格改竖叠 */
+  .hero__col--stats .hero__stats { flex-direction: column; gap: 8px; margin-bottom: var(--sp-3); }
+  .hero__col--stats .hero__stat {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 8px 12px;
+  }
+  .hero__col--stats .hero__stat b { font-size: 17px; }
+  .hero__col--stats .hero__hint { margin-bottom: var(--sp-3); }
+
+  .stem { font-size: 17.5px; }
+  .opt:hover:not(:disabled) { box-shadow: var(--shadow-sm); }
+  .item:hover { border-color: var(--primary-100); }
+  .btn--primary:hover:not(:disabled) { box-shadow: 0 6px 16px rgba(107, 92, 231, .36); }
+  .tabbar { max-width: var(--maxw); margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); bottom: 0; }
+  .stat-grid { gap: var(--sp-3); }
+}
+
+/* ---------- B. 手机端（≤480px）专项增强 ---------- */
+@media (max-width: 480px) {
+  /* 解决 iOS Safari 输入框聚焦自动缩放 (需 >= 16px) */
+  .field__input, .blank-input, .short-input, .wb-select {
+    font-size: 16px !important;
+  }
+
+  .hero {
+    padding: 18px 16px 16px;
+    margin-bottom: 12px;
+  }
+  .hero__title { font-size: 19px; }
+  .hero__stats { gap: 8px; margin-bottom: 14px; }
+  .hero__stat { padding: 8px 6px; text-align: center; }
+  .hero__stat b { font-size: 17px; }
+  .hero__stat span { font-size: 11px; }
+
+  .card { padding: 15px 14px; margin-bottom: 12px; }
+
+  /* 选项触控区保底 */
+  .opt { min-height: 48px; padding: 11px 13px; }
+  .btn { min-height: 44px; }
+  .btn--sm { min-height: 38px; padding: 0 12px; }
+  .chip { min-height: 38px; padding: 7px 12px; font-size: 13px; }
+
+  .hero__panel { padding: 8px; }
+  /* 竖排题库行：保证 ≥48px 触控高度，长书名允许换行不截断 */
+  .seg--hero { min-height: 64px; padding: 10px; gap: 8px; }
+  .seg__name { white-space: normal; line-height: 1.35; }
+  .hero__head-count { display: none; }   /* 窄屏头部太挤，信息降级到按钮 title */
+
+  /* 刷题页 sticky 底部操作栏 */
+  .app--flush #qActions {
+    position: sticky;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 6px);
+    background: linear-gradient(to top, var(--bg) 80%, rgba(243, 246, 250, .4));
+    padding: 12px 0 2px;
+    margin-top: 10px;
+    z-index: 20;
+  }
+}
+
+/* ---------- C. v6：桌面端适配（≥768px） ---------- */
+@media (min-width: 768px) {
+  .quick-grid { grid-template-columns: repeat(4, 1fr); }
+  .quick { flex-direction: column; align-items: flex-start; gap: 8px; min-height: 96px; }
+  .type-grid { grid-template-columns: repeat(4, 1fr); }
+  .sticky-cta { position: static; display: flex; }
+  .sticky-cta .btn { width: auto; flex: 1; }
+  .goal:hover { box-shadow: 0 10px 26px rgba(23, 43, 77, .2); }
+  .type-card:hover, .quick:hover { box-shadow: var(--shadow); }
+}
+
+/* ---------- D. 跨页面小屏规则（≤480px，自 home.css 迁入） ---------- */
+/* 这些规则作用于题库/错题本/我的/考试页面的类，不能留在 home.css（先加载会被目标页基础规则反杀） */
+@media (max-width: 480px) {
+  .type-card { padding: 10px; }
+  .wb-kpi__cell b { font-size: 18px; }
+  .profile-hero { padding: 18px 16px; }
+  .list-row { padding: 12px 16px; }
+  .exam-score { font-size: 38px; }
+  .chapter { padding: 11px 0; }
+}

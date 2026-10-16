@@ -1,0 +1,151 @@
+/* ==========================================================================
+   全局布局与骨架
+   ========================================================================== */
+
+/* ---------- 全局降级横幅 ---------- */
+.banner {
+  position: sticky; top: 0; z-index: 60;
+  padding: 9px var(--sp-4);
+  font-size: 13px; line-height: 1.5;
+  background: var(--warn-soft); color: var(--warn);
+  border-bottom: 1px solid #f2e2bb;
+  text-align: center;
+}
+.banner[hidden] { display: none; }
+
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: rgba(255, 255, 255, .82);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar__inner {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: 10px var(--sp-4);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+}
+.topbar__brand { display: flex; align-items: center; gap: var(--sp-2); color: var(--text); }
+.topbar__logo {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  background: var(--primary-grad); color: #fff;
+  border-radius: 9px; font-size: 14px; font-weight: 700;
+  box-shadow: 0 3px 8px rgba(107, 92, 231, .35);
+}
+.topbar__title { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
+.topbar__meta {
+  font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums;
+  background: var(--card-2); border: 1px solid var(--line);
+  border-radius: var(--r-pill); padding: 3px 10px;
+  white-space: nowrap;
+}
+
+
+/* ---------- 主容器 ---------- */
+.app {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-4) calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 24px);
+}
+.app--flush { padding-top: 10px; }
+
+
+/* ---------- 底部导航 (Vant Tabbar 规范) ---------- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+.tab {
+  flex: 1; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  height: var(--tabbar-h);
+  color: var(--text-2); font-size: 12px; line-height: 1;
+  transition: color var(--dur-1) var(--ease);
+  cursor: pointer;
+}
+.tab:active { opacity: 0.7; }
+.tab .van-icon { font-size: 22px; transition: transform var(--dur-1) var(--ease); }
+.tab.is-active { color: var(--primary); font-weight: 500; }
+.tab.is-active .van-icon { transform: scale(1.08); }
+.tab__badge {
+  position: absolute; top: 3px; left: 50%; margin-left: 6px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  display: grid; place-items: center;
+  background: var(--bad); color: #fff;
+  border-radius: var(--r-pill);
+  font-size: 10px; font-style: normal; font-weight: 700;
+  animation: pop .18s var(--ease-pop);
+}
+.tab__badge[hidden] { display: none; }
+
+
+/* ---------- 空态 / 加载 / 错误 ---------- */
+.empty {
+  text-align: center; padding: 48px 20px; color: var(--text-3);
+}
+.empty__icon { font-size: 38px; line-height: 1; margin-bottom: var(--sp-3); opacity: .55; }
+.empty h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; color: var(--text-2); }
+.empty p { margin: 0; font-size: 13.5px; line-height: 1.7; }
+.empty .btn { margin-top: 18px; }
+
+.loading { text-align: center; padding: 70px 20px; color: var(--text-3); font-size: 14px; }
+.loading__spinner {
+  width: 28px; height: 28px; margin: 0 auto 14px;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error {
+  max-width: 520px; margin: 40px auto; text-align: center;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 32px 24px; box-shadow: var(--shadow-sm);
+}
+.error__icon { font-size: 34px; margin-bottom: var(--sp-3); }
+.error h2 { margin: 0 0 8px; font-size: 17px; }
+.error p { margin: 0 0 8px; font-size: 14px; color: var(--text-2); line-height: 1.7; }
+.error code {
+  display: inline-block; margin-top: 6px; padding: 3px 8px;
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 6px;
+  font-size: 12.5px; color: var(--text-2);
+}
+
+
+/* ==========================================================================
+   v6 新增：首页 / 题库 / 错题本 / 我的 / 收藏 / 考试
+   ========================================================================== */
+
+/* ---------- 壳层：沉浸页隐藏顶栏 ---------- */
+body:has(.app--nobar) .topbar { display: none; }
+.app--nobar { padding-top: var(--sp-4); }
+
+/* ---------- 子页标题栏（内容区，非顶栏） ---------- */
+.page-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.page-head__back {
+  flex: none; width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--card); color: var(--text-2);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.page-head__back:hover { border-color: var(--primary-100); color: var(--primary); }
+.page-head__title { flex: 1; min-width: 0; margin: 0; font-size: 19px; font-weight: 700; }
+.page-head__right { flex: none; font-size: 12.5px; color: var(--text-3); }
+.page-head .btn--sm { flex: none; }
+
+/* 响应式覆盖（桌面/小屏媒体查询）已收口至 css/responsive.css，由 main.ts 最后加载 */
+

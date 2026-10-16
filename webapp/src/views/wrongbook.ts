@@ -7,6 +7,7 @@
  * - 动态根据真实数据统计题库与题型错题数（不硬编码任何数据）。
  */
 
+import "./wrongbook.css";
 import { removeFromWrongbook, toggleFavorite, isFavorite } from "../storage";
 import { displayAnswer, displayUserAnswer } from "../scoring";
 import { wrongLevel } from "../goal";

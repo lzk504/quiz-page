@@ -2,6 +2,7 @@
  * 我的收藏（v6 新建）：列表不展示答案（避免“看答案背题”），点「再做一遍」进入单题练习。
  */
 
+import "./favorites.css";
 import { getLoadedQuestions, getBanks, bankShortName } from "../state";
 import { getStore, toggleFavorite } from "../storage";
 import { favoriteQuestions } from "../goal";

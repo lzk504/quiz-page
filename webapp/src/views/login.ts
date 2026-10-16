@@ -1,5 +1,4 @@
-/** 登录/注册视图：双 tab，注册支持邀请码（首位用户可留空） */
-
+import "./login.css";
 import { login, register, isLoggedIn } from "../auth";
 import { initStorage } from "../storage";
 import { startSync } from "../sync";

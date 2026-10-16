@@ -1,0 +1,60 @@
+/* ==========================================================================
+   登录 / 注册 / 邀请码
+   ========================================================================== */
+
+/* ---------- 登录 / 注册 ---------- */
+.app--auth {
+  padding-top: 8px;
+}
+.app--auth ~ .tabbar,
+body:has(.app--auth) .tabbar { display: none; }
+.app--auth { padding-bottom: 24px; }
+
+.auth { max-width: 420px; margin: 0 auto; }
+.auth__tabs {
+  display: flex; gap: 0;
+  margin: -6px -6px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.auth__tab {
+  flex: 1; padding: 12px 0;
+  background: none; border: none; cursor: pointer;
+  font-size: 15px; font-weight: 600; color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.auth__tab.is-on { color: var(--primary); border-bottom-color: var(--primary); }
+
+.auth__form { display: flex; flex-direction: column; gap: 16px; }
+
+.btn--block { width: 100%; box-sizing: border-box; }
+.auth__note { font-size: 13px; color: var(--text-3); min-height: 1.2em; margin: 0; }
+.auth__note--err { color: var(--bad); }
+.first-user-hint {
+  margin: -4px 0 0; padding: 10px 12px;
+  background: var(--primary-100); color: var(--primary);
+  border-radius: var(--r-md); font-size: 13px; line-height: 1.5;
+}
+
+/* ---------- 邀请码列表 ---------- */
+.invite-list { display: flex; flex-direction: column; gap: 8px; }
+.invite-item {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+.invite-item__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px; font-weight: 600; color: var(--primary);
+  cursor: pointer; user-select: all;
+  letter-spacing: .5px;
+}
+.invite-item__state {
+  font-size: 12px; padding: 2px 8px; border-radius: var(--r-pill);
+}
+.invite-item__state.is-free { background: var(--ok-soft); color: var(--ok); }
+.invite-item__state.is-used { background: rgba(0,0,0,.06); color: var(--text-3); }
+.invite-item__time { font-size: 12px; color: var(--text-3); margin-left: auto; }
+

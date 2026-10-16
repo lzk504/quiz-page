@@ -1,0 +1,172 @@
+/* ---------- 错题本重构样式 ---------- */
+.wb-controls {
+  display: flex; flex-direction: column; gap: 10px;
+  margin-bottom: 14px;
+}
+.wb-filter-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.wb-filter-label {
+  font-size: 13px; font-weight: 600; color: var(--text-2); min-width: 60px;
+}
+.wb-select {
+  flex: 1; min-width: 120px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--line); border-radius: var(--r-sm);
+  background: var(--card); color: var(--text);
+  font-size: 13.5px; font-weight: 500;
+  outline: none;
+  transition: border-color var(--dur-1) var(--ease);
+}
+.wb-select:focus { border-color: var(--primary); }
+
+.wb-redo-buttons {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px;
+}
+.wb-redo-buttons .btn { flex: 1; min-width: 90px; }
+
+/* 嵌套折叠组 */
+.wb-group {
+  margin-bottom: 12px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--card); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.wb-group:last-child { margin-bottom: 0; }
+.wb-group__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 16px;
+  background: var(--card-2);
+  cursor: pointer; user-select: none;
+  font-size: 15px; font-weight: 650; color: var(--text);
+  border-bottom: 1px solid transparent;
+  list-style: none;
+}
+.wb-group__head::-webkit-details-marker { display: none; }
+.wb-group[open] > .wb-group__head {
+  border-bottom-color: var(--line);
+}
+.wb-group__arrow {
+  font-size: 12px; color: var(--text-3); margin-left: 6px;
+  display: inline-block; transition: transform var(--dur-1) var(--ease);
+}
+.wb-group[open] > .wb-group__head .wb-group__arrow {
+  transform: rotate(90deg);
+}
+
+.wb-subgroup {
+  border-bottom: 1px solid var(--line-2);
+}
+.wb-subgroup:last-child { border-bottom: none; }
+.wb-subgroup__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 16px;
+  cursor: pointer; user-select: none;
+  font-size: 13.5px; font-weight: 600; color: var(--text-2);
+  background: #fafcff;
+  border-bottom: 1px dashed transparent;
+  list-style: none;
+}
+.wb-subgroup__head::-webkit-details-marker { display: none; }
+.wb-subgroup[open] > .wb-subgroup__head {
+  border-bottom-color: var(--line-2);
+}
+.wb-subgroup[open] > .wb-subgroup__head .wb-group__arrow {
+  transform: rotate(90deg);
+}
+
+.wb-items {
+  padding: 0 14px;
+}
+.wb-item {
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line-2);
+}
+.wb-item:last-child { border-bottom: none; }
+.wb-item__top {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 6px;
+}
+.wb-item__tags { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wb-item__stem {
+  font-size: 14.5px; line-height: 1.6; color: var(--text); font-weight: 500;
+  margin-bottom: 8px;
+}
+.wb-item__ans {
+  background: var(--card-2); border-radius: var(--r-sm);
+  padding: 8px 12px; margin-bottom: 8px;
+  font-size: 13px; color: var(--text-2); line-height: 1.6;
+}
+.wb-item__ans b { color: var(--ok); }
+.wb-item__actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.wb-item__time {
+  font-size: 11.5px; color: var(--text-3);
+}
+
+
+/* ---------- 错题本 ---------- */
+.wb-kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.wb-kpi__cell {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 12px 8px; text-align: center; box-shadow: var(--shadow-sm);
+}
+.wb-kpi__cell b { display: block; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wb-kpi__cell span { font-size: 11.5px; color: var(--text-3); }
+.wb-kpi__cell--bad b { color: var(--bad); }
+.wb-kpi__cell--ok b { color: var(--ok); }
+
+.wb-items { display: flex; flex-direction: column; }
+.wb-item {
+  padding: 13px 0; border-bottom: 1px dashed var(--line-2);
+}
+.wb-item:last-child { border-bottom: none; }
+.wb-item__top {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  margin-bottom: 6px;
+}
+.wb-item__tags { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wb-item__stem {
+  font-size: 14.5px; line-height: 1.65; color: var(--text); font-weight: 500;
+  margin-bottom: 9px;
+}
+.wb-item__answers { display: flex; flex-direction: column; gap: 5px; margin-bottom: 9px; }
+.wb-item__line { font-size: 13px; line-height: 1.65; color: var(--text-2); }
+.wb-item__line b { font-weight: 650; }
+.wb-item__line--mine b { color: var(--bad); }
+.wb-item__line--right b { color: var(--ok); }
+.wb-item__line--blank b { color: var(--text-3); font-weight: 400; }
+.wb-item__analysis {
+  background: var(--warn-soft); border: 1px solid #f3e3ba; border-radius: var(--r-sm);
+  padding: 9px 11px; font-size: 13px; line-height: 1.7; color: #77580f; margin-bottom: 9px;
+}
+.wb-item__analysis b { color: var(--warn); font-size: 11.5px; letter-spacing: .4px; display: block; margin-bottom: 3px; }
+.wb-item__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; font-size: 11.5px; color: var(--text-3);
+  padding-top: 9px; border-top: 1px solid var(--line-2);
+}
+.wb-item__act { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wb-badge {
+  font-size: 11px; font-weight: 650; padding: 2.5px 8px; border-radius: var(--r-pill);
+  background: var(--line-2); color: var(--text-3); white-space: nowrap;
+}
+.wb-badge--amber { background: var(--warn-soft); color: var(--warn); }
+.wb-badge--red { background: var(--bad-soft); color: var(--bad); }
+.wb-check {
+  flex: none; width: 20px; height: 20px; margin-top: 2px;
+  border: 1.5px solid var(--line); border-radius: 6px; background: #fff;
+  display: grid; place-items: center; cursor: pointer;
+  color: transparent; font-size: 12px; font-weight: 800;
+}
+.wb-check.is-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.sticky-cta {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 8px);
+  z-index: 20; margin-top: 14px;
+}
+.sticky-cta .btn { box-shadow: var(--shadow); width: 100%; }
+
