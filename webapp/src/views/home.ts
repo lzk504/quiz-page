@@ -11,7 +11,7 @@
 import "./home.css";
 import {
   getBanks, getLoadedQuestions, getQuestion, bankQuestionCount, isBankLoaded, ensureBank,
-  questionDomainLabel, typeLabels, getBank, bankShortTitle, bankShortName,
+  questionDomainLabel, getBank, bankShortTitle, bankShortName,
 } from "../state";
 import { getStore, getNickname } from "../storage";
 import {
@@ -57,11 +57,9 @@ function bankStats(): Map<string, BankStat> {
 
 /** 上次练习范围内的题池（已加载库口径） */
 function scopePool(scope: LastScope): Question[] {
-  const types = scope.type ? scope.type.split(",").filter(Boolean) : [];
   return getLoadedQuestions().filter((q) => {
     if (!scope.banks.includes(q.id.split("-")[0])) return false;
     if (scope.domain && q.domain !== scope.domain) return false;
-    if (types.length && !types.includes(q.type)) return false;
     return true;
   });
 }
@@ -77,14 +75,16 @@ function scopeLabel(scope: LastScope, pool: Question[]): string {
     const sample = pool.find((q) => q.domain === scope.domain);
     parts.push(sample ? questionDomainLabel(sample) : scope.domain);
   }
-  if (scope.type) parts.push(scope.type.split(",").filter(Boolean).map((t) => typeLabels()[t] ?? t).join("／"));
   return parts.join(" · ") || "全部题目";
 }
 
 /* ---------------- 渲染片段 ---------------- */
 
 function continueCard(): string {
-  const scope = getLastScope();
+  // 章节练习不接入首页「继续上次练习」（入口仅在题库章节目录），
+  // 因此历史版本可能残留的 from:"chapter" 存量 scope 一律视为无。
+  const raw = getLastScope();
+  const scope = raw?.from === "chapter" ? null : raw;
   const pool = scope ? scopePool(scope) : [];
   const records = getStore().records ?? {};
 
@@ -108,9 +108,8 @@ function continueCard(): string {
   const rest = Math.max(0, pool.length - answered);
   const rate = answered ? pct(correct, answered) : 0;
 
-  const isChapter = scope?.from === "chapter";
-  const titleText = isChapter ? "▷ 继续上次章节练习" : "▷ 继续上次全范围练习";
-  const tagText = isChapter ? "章节练习" : "全库全范围练习";
+  const titleText = "▷ 继续上次全范围练习";
+  const tagText = "全库全范围练习";
 
   return `
     <section class="card continue-card" id="continueCard">
@@ -278,16 +277,12 @@ const view: View = {
     root.querySelector("#qStart")?.addEventListener("click", startDefault);
     root.querySelector("#qGoBanks")?.addEventListener("click", () => navigate("banks"));
     root.querySelector("#qContinue")?.addEventListener("click", () => {
-      const scope = getLastScope();
+      const raw = getLastScope();
+      const scope = raw?.from === "chapter" ? null : raw;
       if (!scope) { startDefault(); return; }
       const params: Record<string, string> = { banks: scope.banks.join(","), fresh: "0" };
       if (scope.domain) params.domain = scope.domain;
-      if (scope.type) params.type = scope.type;
-      if (scope.from === "chapter") {
-        navigate("chapter-practice", params);
-      } else {
-        navigate("general-practice", params);
-      }
+      navigate("general-practice", params);
     });
 
     root.querySelector("#quickChapter")?.addEventListener("click", () => navigate("banks"));

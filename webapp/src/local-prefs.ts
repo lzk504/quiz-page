@@ -22,7 +22,6 @@ export interface LastScope {
   /** 题库 id 集合（= 当时的刷题范围） */
   banks: string[];
   domain?: string;
-  type?: string;
   /** 练习来源（如 'chapter' 表示从章节目录进入） */
   from?: string;
   /** 记录时间，用于判断「是否仍有进度」的兜底 */
@@ -40,7 +39,6 @@ export function getLastScope(): LastScope | null {
     return {
       banks,
       domain: typeof v.domain === "string" && v.domain ? v.domain : undefined,
-      type: typeof v.type === "string" && v.type ? v.type : undefined,
       from: typeof v.from === "string" && v.from ? v.from : undefined,
       at: Number(v.at) || 0,
     };
@@ -52,7 +50,6 @@ export function setLastScope(scope: Omit<LastScope, "at"> | null): void {
   const value: LastScope = {
     banks: scope.banks,
     domain: scope.domain,
-    type: scope.type,
     from: scope.from,
     at: Date.now(),
   };

@@ -13,14 +13,6 @@ export const DOMAIN_CLASS: Record<string, string> = {
   general: "tag--general",
 };
 
-export const TYPE_CLASS: Record<string, string> = {
-  single: "tag--general",
-  multiple: "tag--general",
-  judge: "tag--general",
-  fill: "tag--general",
-  short: "tag--general",
-};
-
 export function domainTag(domain: string): string {
   const label = domainLabels()[domain] ?? domain;
   return `<span class="tag ${DOMAIN_CLASS[domain] ?? "tag--general"}">${esc(label)}</span>`;
@@ -69,11 +61,6 @@ export function emptyState({ icon = "📭", title = "暂无内容", desc = "", a
     ${action}
   </div>`;
 }
-
-/** 题型图标（用于列表前缀，可选） */
-export const TYPE_ICON: Record<string, string> = {
-  single: "①", multiple: "②", judge: "③", fill: "④", short: "⑤",
-};
 
 /* ---------------- 通用确认弹窗 ----------------
  * 替代 window.confirm：原生 confirm 在部分环境（WebView / 自动化浏览器）会被

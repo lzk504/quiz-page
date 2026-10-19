@@ -140,17 +140,6 @@
 .bank-pill__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .bank-pill.is-on .bank-pill__dot { background: var(--primary); }
 
-.search-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px; margin-bottom: 12px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
-}
-.search-row svg { width: 17px; height: 17px; color: var(--text-3); flex: none; }
-.search-input {
-  flex: 1; min-width: 0; border: none; background: none; outline: none;
-  font: inherit; font-size: 14px; color: var(--text);
-}
-
 .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 0; }
 .kpi {
   background: var(--card-2); border: 1px solid var(--line-2);
@@ -212,18 +201,4 @@
 .chapter__chip--done { background: var(--ok-soft); color: var(--ok); }
 .chapter__chip--doing { background: var(--primary-soft); color: var(--primary); }
 .chapter__arrow { flex: none; color: var(--text-3); font-size: 15px; }
-
-.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.type-card {
-  padding: 12px; cursor: pointer; text-align: left;
-  border: 1px solid var(--line); border-radius: var(--r);
-  background: var(--card); box-shadow: var(--shadow-sm);
-  font: inherit; color: inherit;
-  transition: border-color var(--dur-1) var(--ease), transform .1s var(--ease);
-}
-.type-card:hover { border-color: var(--primary-100); }
-.type-card:active { transform: scale(.98); }
-.type-card__label { font-size: 13.5px; font-weight: 650; }
-.type-card__count { display: block; font-size: 11.5px; color: var(--primary); margin-top: 3px; font-variant-numeric: tabular-nums; }
-.type-card__desc { display: block; font-size: 11px; color: var(--text-3); margin-top: 3px; line-height: 1.5; }
 

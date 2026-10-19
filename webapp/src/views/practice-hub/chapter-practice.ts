@@ -3,24 +3,25 @@
  * 对应路由：#/chapter-practice
  * 特性：
  *   - 章节做题：按目录顺序做题、断点记忆、一键跳转下一章、已完成章节全量解析浏览；
- *   - 独立草稿隔离（kind: "chapter"），弹窗明确标识「章节练习【某章节】」；
+ *   - **脱离草稿**（v6.4 语义）：按云端 records 断点续做，进入即由 chapterResumeSort
+ *     定位第一道未做题，不写 chapter 草稿、不弹续刷弹窗（chapter-practice 内部弹窗已移除）；
+ *   - 不写 lastScope（首页「继续上次练习」只服务普通练习，章节进度首页不展示）；
  *   - 实时作答隔离（sessionAnswers），确保未答题不提前展示答案。
  */
 
 import {
-  getLoadedQuestions, getQuestion, getSelectedBanks, getBank,
+  getLoadedQuestions, getSelectedBanks, getBank,
   questionDomainLabel,
 } from "../../state";
 import { getStore, recordAnswer, toggleFavorite, isFavorite } from "../../storage";
 import { grade, isSelfJudged, type GradeResult } from "../../scoring";
 import { chapterOrderSort, chapterResumeSort } from "../../goal";
-import { setLastScope } from "../../local-prefs";
 import { esc } from "../../utils";
 import { navigate } from "../../router";
 import { domainTag, typeTag, bankTag, emptyState, confirmDialog, closeActiveDialog } from "../../ui";
 import type { Question, View } from "../../types";
 import { renderQuestionBody, renderFeedbackCard, collectAnswer } from "./quiz-card";
-import { saveDraft, readDraft, clearDraft, type PracticeDraft } from "./draft";
+import { clearDraft } from "./draft";
 
 interface ChapterSession {
   queue: Question[];
@@ -41,18 +42,6 @@ interface ChapterSession {
 
 let S: ChapterSession | null = null;
 let renderSeq = 0;
-
-function resumeSession(d: PracticeDraft): ChapterSession {
-  const s = createSession(d.params);
-  const queue = d.ids.map((id) => getQuestion(id)).filter((q): q is Question => !!q);
-  if (queue.length) {
-    s.queue = queue;
-    const nextIdx = d.settled ? d.index + 1 : d.index;
-    s.index = Math.min(Math.max(0, nextIdx), queue.length - 1);
-  }
-  s.done = false;
-  return s;
-}
 
 function poolByBanks(banksParam?: string): Question[] {
   const all = getLoadedQuestions();
@@ -455,37 +444,9 @@ export const chapterPracticeView: View = {
     const params = rawParams ?? {};
     const seq = ++renderSeq;
 
-    const banks = params.banks ? params.banks.split(",").filter(Boolean) : getSelectedBanks();
-    setLastScope({ banks, domain: params.domain, type: params.type, from: "chapter" });
-
-    const draft = readDraft("chapter");
-    // 仅当草稿与当前所选章节一致时才提示恢复当前章节草稿
-    const isSameChapter = draft && draft.params.domain === params.domain;
-
-    if (isSameChapter && draft.ids.length && params.fresh !== "1") {
-      const qIdx = draft.settled ? draft.index + 1 : draft.index;
-      const targetHumanIdx = Math.min(qIdx + 1, draft.ids.length);
-      const isSettledDesc = draft.settled
-        ? `上次已作答完第 ${draft.index + 1} 题，将从第 ${targetHumanIdx} 题继续作答。`
-        : `上次在第 ${targetHumanIdx} 题尚未作答，将恢复到该题。`;
-
-      const domainName = draft.domainLabel ?? params.domain ?? "本章节";
-      const resume = await confirmDialog({
-        title: "继续章节练习？",
-        message: `检测到上次未完成的章节练习【${domainName}】（共 ${draft.ids.length} 题）。${isSettledDesc}`,
-        confirmText: `从第 ${targetHumanIdx} 题继续`,
-        cancelText: "重新开始",
-      });
-
-      if (seq !== renderSeq) return;
-
-      if (resume) {
-        S = resumeSession(draft);
-        renderCard(root);
-        return;
-      }
-      clearDraft("chapter");
-    }
+    // 章节练习脱离草稿体系（v6.4 语义）：进入即按 records 断点定位第一道未做题，
+    // 不读也不写 chapter 草稿。此处清掉历史版本可能残留的陈旧草稿（幂等）。
+    clearDraft("chapter");
 
     const s = createSession(params);
     S = s;
@@ -526,15 +487,7 @@ export const chapterPracticeView: View = {
   },
   unmount() {
     renderSeq++;
-    if (S) {
-      saveDraft("chapter", S.params, S.queue, S.index, S.settled, {
-        done: S.done,
-        title: S.title,
-        domain: S.params.domain,
-        domainLabel: S.domainName,
-        isReviewMode: S.isReviewMode,
-      });
-    }
+    // 章节练习不写草稿（records 即断点），退出无需持久化任何题位状态
     closeActiveDialog();
     S = null;
   },

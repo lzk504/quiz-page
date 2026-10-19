@@ -10,7 +10,7 @@
 
 import {
   getQuestions, getLoadedQuestions, getQuestion, getSelectedBanks,
-  questionDomainLabel, typeLabels,
+  questionDomainLabel,
 } from "../../state";
 import { getStore, recordAnswer, toggleFavorite, isFavorite } from "../../storage";
 import { grade, isSelfJudged, type GradeResult } from "../../scoring";
@@ -77,10 +77,6 @@ function buildPool(params: Record<string, string>): Question[] {
     const domains = params.domain.split(",").filter(Boolean);
     if (domains.length) pool = pool.filter((q) => domains.includes(q.domain));
   }
-  if (params.type) {
-    const types = params.type.split(",").filter(Boolean);
-    if (types.length) pool = pool.filter((q) => types.includes(q.type));
-  }
 
   if (mode === "daily") {
     const store = getStore();
@@ -105,14 +101,12 @@ function createSession(params: Record<string, string>): GeneralSession {
     title = `今日目标（还需刷 ${left} 题）`;
     if (!pool.length) emptyHint = left === 0 ? "今日目标已达成！太棒了 🎉" : "当前范围内暂无新题可刷，换个题库试试。";
   } else {
-    const types = (params.type ?? "").split(",").filter(Boolean);
     const domains = (params.domain ?? "").split(",").filter(Boolean);
     const dNames = domains.map((d) => {
       const sample = pool.find((q) => q.domain === d);
       return sample ? questionDomainLabel(sample) : d;
     });
-    const tNames = types.map((t) => typeLabels()[t] ?? t);
-    title = [...tNames, ...dNames].join(" · ") || "全库全范围练习";
+    title = dNames.join(" · ") || "全库全范围练习";
   }
 
   let queue: Question[];
@@ -424,7 +418,7 @@ export const generalPracticeView: View = {
 
     if (!mode) {
       const banks = params.banks ? params.banks.split(",").filter(Boolean) : getSelectedBanks();
-      setLastScope({ banks, domain: params.domain, type: params.type, from: undefined });
+      setLastScope({ banks, domain: params.domain, from: undefined });
     }
 
     const draft = !mode ? readDraft("general") : null;

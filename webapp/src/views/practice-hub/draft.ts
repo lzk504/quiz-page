@@ -1,7 +1,11 @@
 /**
  * 差异化草稿管理模块（draft.ts）
- * 支持普通练习（general）、章节练习（chapter）、错题重做（wrong）三种模式的独立物理隔离存储。
+ * 支持普通练习（general）与错题重做（wrong）两种模式的独立物理隔离存储。
  * 解决跨模式草稿互相覆盖、退出错题练习草稿丢失，以及首页恢复弹窗语义混淆的问题。
+ *
+ * 注意：`chapter` 键已废弃——章节练习按云端 records 断点续做，不写草稿
+ * （v6.4 语义；saveDraft 对 chapter 直接拒绝写入）。类型中保留该键仅用于
+ * clearDraft 清理历史版本残留的陈旧草稿。
  */
 
 import { getCurrentUser } from "../../auth";
@@ -36,6 +40,7 @@ export function saveDraft(
   settled: boolean,
   meta?: { title?: string; domain?: string; domainLabel?: string; done?: boolean; isReviewMode?: boolean },
 ): void {
+  if (kind === "chapter") return;                        // chapter 草稿已废弃（章节按 records 断点续做）
   if (meta?.isReviewMode) return;                        // 查看解析模式不存草稿
   if (meta?.done || !queue.length) { clearDraft(kind); return; }
   // 如果已作答且已到最后一题，视为已完成练习，不再写草稿

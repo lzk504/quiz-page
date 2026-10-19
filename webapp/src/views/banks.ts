@@ -1,9 +1,9 @@
 /**
- * 题库 tab（v6 新建 / v6.1 改造）：选库 → 该库总览 → 练习/考试模式 → 章节目录（领域）→ 题型说明
+ * 题库 tab（v6 新建 / v6.1 改造）：选库 → 该库总览 → 练习/考试模式 → 章节目录（领域）
  *
  * 约定：
  *  - **选库是唯一入口**：点顶部 pill 既切换浏览的库，也把该库设为刷题范围（selectedBanks 单库），
- *    章节、简介、题型卡随之联动刷新；v6.1 起取消了独立的「我的刷题范围」开关卡（不再支持多库合并刷题）；
+ *    章节、简介随之联动刷新；v6.1 起取消了独立的「我的刷题范围」开关卡（不再支持多库合并刷题）；
  *  - 章节 = 领域（单级，数据只有一层）；
  *  - 点章节行始终进入**练习模式**（考试模式必须走顶部「开始模拟考试」）。
  */
@@ -11,7 +11,7 @@
 import "./banks.css";
 import {
   getBanks, getBank, isBankLoaded, isBankFailed, ensureBank,
-  getSelectedBanks, setSelectedBanks, getLoadedQuestions, questionDomainLabel, typeLabels,
+  getSelectedBanks, setSelectedBanks, getLoadedQuestions, questionDomainLabel,
   bankShortName, bankShortTitle,
 } from "../state";
 import { getStore } from "../storage";
@@ -24,7 +24,6 @@ import type { BankMeta, Question, View } from "../types";
 
 let activeBank = "";
 let examMode = false;
-let query = "";
 
 /* ---------------- 计算 ---------------- */
 
@@ -40,17 +39,14 @@ interface ChapterStat {
   total: number;
   answered: number;
   correct: number;
-  match: number;
 }
 
 function chapterStats(bank: BankMeta, questions: Question[]): ChapterStat[] {
   const records = getStore().records ?? {};
-  const q = query.trim().toLowerCase();
   return bank.domains.map((domain) => {
     const qs = questions.filter((x) => x.domain === domain);
     const answered = qs.filter((x) => records[x.id]).length;
     const correct = qs.filter((x) => records[x.id]?.lastCorrect).length;
-    const match = q ? qs.filter((x) => x.stem.toLowerCase().includes(q)).length : qs.length;
     const sample = qs[0];
     return {
       domain,
@@ -58,7 +54,6 @@ function chapterStats(bank: BankMeta, questions: Question[]): ChapterStat[] {
       total: qs.length,
       answered,
       correct,
-      match,
     };
   });
 }
@@ -139,44 +134,21 @@ function modeCard(bank: BankMeta): string {
     </section>`;
 }
 
-function chapterCardText(bank: BankMeta, chapters: ChapterStat[]): string {
-  const shown = query.trim() ? chapters.filter((c) => c.match > 0) : chapters;
-  if (!shown.length) {
-    return `<p class="about" style="margin:0">没有匹配「${esc(query.trim())}」的题目，换个关键词试试。</p>`;
-  }
-  return `<div class="chapter-list">${shown.map((c) => {
-    const idx = chapters.indexOf(c) + 1;
+function chapterCardText(chapters: ChapterStat[]): string {
+  return `<div class="chapter-list">${chapters.map((c, i) => {
+    const idx = i + 1;
     const mastery = c.answered ? pct(c.correct, c.answered) : 0;
     return `<button class="chapter" data-domain="${esc(c.domain)}">
       <span class="chapter__idx">${idx}</span>
       <span class="chapter__body">
         <span class="chapter__title">${esc(c.label)}</span>
         <span class="chapter__meta">
-          ${query.trim() ? `命中 <b>${c.match}</b> 题 · ` : ""}共 <b>${c.total}</b> 题 · 已练 <b>${c.answered}</b> · 掌握度 <b>${c.answered ? mastery + "%" : "—"}</b>
+          共 <b>${c.total}</b> 题 · 已练 <b>${c.answered}</b> · 掌握度 <b>${c.answered ? mastery + "%" : "—"}</b>
         </span>
         <span class="chapter__bar"><i style="width:${c.total ? pct(c.answered, c.total) : 0}%"></i></span>
       </span>
       ${chapterChip(c)}
       <span class="chapter__arrow">›</span>
-    </button>`;
-  }).join("")}</div>`;
-}
-
-function typeCardText(bank: BankMeta, questions: Question[]): string {
-  const counts: Record<string, number> = {};
-  for (const q of questions) counts[q.type] = (counts[q.type] ?? 0) + 1;
-  const groups = [
-    { type: "single,multiple", key: "single", label: "单选题 · 多选题", desc: "4 选 1 / 多选全对才得分" },
-    { type: "judge", key: "judge", label: "判断题", desc: "判断表述正确与否" },
-    { type: "fill", key: "fill", label: "填空题", desc: "一题多空，作答后自判" },
-    { type: "short", key: "short", label: "简答题", desc: "开放作答，对照参考答案自判" },
-  ];
-  return `<div class="type-grid">${groups.map((g) => {
-    const n = g.type.split(",").reduce((a, t) => a + (counts[t] ?? 0), 0);
-    return `<button class="type-card" data-type="${esc(g.type)}">
-      <span class="type-card__label">${g.label}</span>
-      <span class="type-card__count">${n} 题</span>
-      <span class="type-card__desc">${g.desc}</span>
     </button>`;
   }).join("")}</div>`;
 }
@@ -238,22 +210,12 @@ const view: View = {
 
       ${bankPills()}
 
-      <div class="search-row">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
-        <input class="search-input" id="bankSearch" type="search" placeholder="搜索题干关键词（统计本章命中题数）" value="${esc(query)}">
-      </div>
-
       ${overviewCard(bank, questions)}
       ${modeCard(bank)}
 
       <section class="card">
         <h2 class="card__title">章节目录 <small>点击章节开始做题</small></h2>
-        <div id="chapterBox">${chapterCardText(bank, chapters)}</div>
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">题型说明 <small>按题型专项练习</small></h2>
-        ${typeCardText(bank, questions)}
+        <div id="chapterBox">${chapterCardText(chapters)}</div>
       </section>
     `;
 
@@ -264,21 +226,9 @@ const view: View = {
         const id = btn.dataset.bank;
         if (!id || id === activeBank) return;
         activeBank = id;
-        query = "";
-        // 选库 = 选刷题范围（单选），完成后整页重绘联动章节 / 简介 / 题型
+        // 选库 = 选刷题范围（单选），完成后整页重绘联动章节 / 简介
         void setSelectedBanks([id]).then(() => view.render(root));
       });
-    });
-
-    // 题干搜索：只重绘章节目录，避免输入框失焦
-    const search = root.querySelector<HTMLInputElement>("#bankSearch");
-    search?.addEventListener("input", () => {
-      query = search.value;
-      const box = root.querySelector("#chapterBox");
-      if (box) {
-        box.innerHTML = chapterCardText(bank, chapters);
-        bindChapters(box as HTMLElement);
-      }
     });
 
     root.querySelectorAll<HTMLButtonElement>(".mode").forEach((btn) => {
@@ -294,13 +244,6 @@ const view: View = {
     });
 
     bindChapters(root);
-
-    root.querySelectorAll<HTMLButtonElement>(".type-card").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const type = btn.dataset.type;
-        if (type) navigate("general-practice", { type, banks: activeBank });
-      });
-    });
 
     function bindChapters(scope: HTMLElement): void {
       scope.querySelectorAll<HTMLButtonElement>(".chapter").forEach((btn) => {

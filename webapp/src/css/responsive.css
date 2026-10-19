@@ -87,17 +87,15 @@
 @media (min-width: 768px) {
   .quick-grid { grid-template-columns: repeat(4, 1fr); }
   .quick { flex-direction: column; align-items: flex-start; gap: 8px; min-height: 96px; }
-  .type-grid { grid-template-columns: repeat(4, 1fr); }
   .sticky-cta { position: static; display: flex; }
   .sticky-cta .btn { width: auto; flex: 1; }
   .goal:hover { box-shadow: 0 10px 26px rgba(23, 43, 77, .2); }
-  .type-card:hover, .quick:hover { box-shadow: var(--shadow); }
+  .quick:hover { box-shadow: var(--shadow); }
 }
 
 /* ---------- D. 跨页面小屏规则（≤480px，自 home.css 迁入） ---------- */
 /* 这些规则作用于题库/错题本/我的/考试页面的类，不能留在 home.css（先加载会被目标页基础规则反杀） */
 @media (max-width: 480px) {
-  .type-card { padding: 10px; }
   .wb-kpi__cell b { font-size: 18px; }
   .profile-hero { padding: 18px 16px; }
   .list-row { padding: 12px 16px; }
