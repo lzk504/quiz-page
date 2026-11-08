@@ -19,6 +19,7 @@ import { esc, pct } from "../utils";
 import { navigate } from "../router";
 import { bar, emptyState } from "../ui";
 import type { BankMeta, Question, View } from "../types";
+import { typeStats, typeCard } from "./banks-types";
 
 /* ---------------- 模块级 UI 状态（跨 render 保留） ---------------- */
 
@@ -201,6 +202,7 @@ const view: View = {
 
     const questions = questionsOf(activeBank);
     const chapters = chapterStats(bank, questions);
+    const types = typeStats(questions);
 
     root.innerHTML = `
       <div class="page-head">
@@ -212,6 +214,7 @@ const view: View = {
 
       ${overviewCard(bank, questions)}
       ${modeCard(bank)}
+      ${typeCard(types)}
 
       <section class="card">
         <h2 class="card__title">章节目录 <small>点击章节开始做题</small></h2>
@@ -244,6 +247,16 @@ const view: View = {
     });
 
     bindChapters(root);
+    bindTypes(root);
+
+    function bindTypes(scope: HTMLElement): void {
+      scope.querySelectorAll<HTMLButtonElement>(".type-row").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const type = btn.dataset.type;
+          if (type) navigate("type-practice", { type, banks: activeBank });
+        });
+      });
+    }
 
     function bindChapters(scope: HTMLElement): void {
       scope.querySelectorAll<HTMLButtonElement>(".chapter").forEach((btn) => {

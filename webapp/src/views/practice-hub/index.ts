@@ -8,6 +8,7 @@ export { generalPracticeView, default as generalPractice, debugSession } from ".
 export { chapterPracticeView, default as chapterPractice } from "./chapter-practice";
 export { examView, default as exam, debugExam } from "./exam";
 export { wrongPracticeView, default as wrongPractice } from "./wrong-practice";
+export { typePracticeView, default as typePractice, debugTypeSession } from "./type-practice";
 export * from "./quiz-card";
 export * from "./draft";
 export * from "./wrongbook-manager";

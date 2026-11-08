@@ -31,6 +31,9 @@ build/
 scripts/_shots/
 *.log
 
+# ---------- 规划与交付草稿（不入库） ----------
+outputs/
+
 # ---------- 本地题库工具链（仅本地生成/校验题库，不参与构建与部署）----------
 scripts/
 scripts/*.py
@@ -65,3 +68,6 @@ AGENT.md
 setting.json
 .agentignore
 .agents/
+AGENTS.md
+PROJECT_INDEX.md
+docs/

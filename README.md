@@ -7,7 +7,7 @@
 > 当前形态：后端 `src/` 11 个 `.ts`（**零运行时依赖**，单 Worker、无 Durable Object）；
 > 前端 `webapp/src/` 32 个 `.ts`（约 7069 行，vanilla TS + Vite，构建产物到 `../dist`）。
 
-**快速索引**：[项目逻辑说明](#项目逻辑说明) ｜ [目录结构](#目录结构) ｜ [本地开发](#本地开发) ｜
+**快速索引**：[工程上下文索引](PROJECT_INDEX.md) ｜ [项目逻辑说明](#项目逻辑说明) ｜ [目录结构](#目录结构) ｜ [本地开发](#本地开发) ｜
 [构建与部署](#构建与部署) ｜ [API](#api) ｜ [测试](#测试) ｜ [维护题库](#维护题库) ｜ [更新日志](#更新日志)
 
 ## 技术栈
@@ -34,7 +34,7 @@
   头部显示「已完成 X / N」与可视化进度条，口径与练习/考试完全隔离
 - **记忆模式**：普通 / 章节 / 错题三种练习均支持「上一题」回看与答题状态记忆（复习态不重复写记录）
 - **练习算法**：按掌握度与错题权重排序抽题（`smartPracticeSort`），章节按「未做题优先」排序（`chapterResumeSort`）
-- **答题卡**：通用半模态答题卡 `ExamCardSheet`，四种练习场景共用，支持跳题、已答/未答标记、当前题高亮
+- **答题卡**：考试模式专用半模态答题卡 `ExamCardSheet`（跳题、已答/未答标记、当前题高亮）；普通/章节/错题练习不提供答题卡，走各自逐题流程
 - **考试结算看板**：Vant 风格结算页（总分、用时、分题型正确率进度条、逐题解析清单）
 - **视觉风格**：对齐 Vant（`@vant/icons`）风格，纯手写 CSS、无组件库依赖
 - **我的收藏**：题目卡片可星标收藏，收藏列表隐藏参考答案，支持取消收藏与单题重做
@@ -100,7 +100,7 @@
 | `chapter-practice.ts` | 章节练习（按 `records` 断点续做、章节进度口径独立） |
 | `wrong-practice.ts` | 错题重做（进入时剪枝已移出错题） |
 | `exam.ts` | 考试模式（100 题 / 60 分钟、零反馈、交卷自评与出分） |
-| `exam-card.ts` | 通用答题卡半模态 `ExamCardSheet`（四种练习场景复用） |
+| `exam-card.ts` | 考试模式专用答题卡半模态 `ExamCardSheet`（仅 `exam.ts` 引用） |
 | `wrongbook-manager.ts` | 错题本单一事实源（统计、批量操作、角标） |
 
 刷题路由由 `router.ts` 代理分发：`practice?mode=exam` → exam、`mode=wrong` → wrong-practice、
@@ -187,7 +187,7 @@ webapp/                      前端（TypeScript）
         chapter-practice.ts                章节练习（按 records 断点续做）
         wrong-practice.ts                  错题重做
         exam.ts                            考试模式（100 题/60 分钟）
-        exam-card.ts                       通用答题卡半模态 ExamCardSheet
+        exam-card.ts                       考试模式专用答题卡 ExamCardSheet（仅 exam.ts 引用）
         wrongbook-manager.ts               错题单一事实源
 dist/                        Vite 构建产物（gitignore；wrangler assets 目录）
 wrangler.toml                Worker 配置（D1 + KV 限额计数 + assets）
@@ -383,6 +383,10 @@ data/bank-y.json   《幼儿园教育指导纲要》
 ## 更新日志
 
 ### 进行中 / 未提交（工作区快照，HEAD = `3be9ece`）
+
+> ⚠️ **2026-10-20 更正**：答题卡「四模式通用化」决策**已取消** —— `ExamCardSheet` 现仅供考试模式使用，
+> 普通/章节/错题练习已按各自流程重写、不再引用该组件。下方 10-16 条目中的「四类场景复用」是当时状态，
+> 已非当前事实（详见 `docs/context/DECISIONS.md` §5 取消记录）。
 
 - （未提交）**考试模式 Vant 化下半场**：新增 `views/practice-hub/exam-card.ts`（134 行，
   通用答题卡半模态 `ExamCardSheet`，普通/章节/错题/考试四类场景复用，支持跳题、已答标记与交卷）；

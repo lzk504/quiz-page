@@ -1,7 +1,7 @@
 /**
  * 极简 hash 路由。
  *   #/home  #/banks  #/wrongbook  #/me  #/login
- *   #/practice?domain=health&type=single    练习模式
+ *   #/type-practice?type=single&banks=G  题型专项练习
  *   #/practice?mode=wrong|daily|fav|exam    错题重刷 / 今日目标 / 单题练习 / 考试
  *   #/favorites  #/stats  #/settings
  *
@@ -17,7 +17,7 @@ let onAfter: ((route: Route) => void) | null = null;
 
 const PUBLIC_VIEWS = new Set(["login"]);
 const TOPBAR_HIDDEN = new Set([
-  "home", "me", "practice", "general-practice", "chapter-practice", "exam", "wrong-practice", "login", "banks", "wrongbook",
+  "home", "me", "practice", "general-practice", "chapter-practice", "exam", "wrong-practice", "type-practice", "login", "banks", "wrongbook",
 ]);
 
 export function register(name: string, view: View): void {
@@ -99,6 +99,7 @@ async function render(): Promise<void> {
   const isFlush = activeView === "practice" ||
     activeView === "general-practice" ||
     activeView === "chapter-practice" ||
+    activeView === "type-practice" ||
     activeView === "exam" ||
     activeView === "wrong-practice";
   app.classList.toggle("app--flush", isFlush);

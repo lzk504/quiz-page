@@ -35,7 +35,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 
 import home from "./views/home";
 import banks from "./views/banks";
-import { generalPractice, chapterPractice, exam, wrongPractice, debugSession, debugExam, WrongbookManager } from "./views/practice-hub";
+import { generalPractice, chapterPractice, exam, wrongPractice, typePractice, debugSession, debugExam, debugTypeSession, WrongbookManager } from "./views/practice-hub";
 import wrongbook from "./views/wrongbook";
 import me from "./views/me";
 import favorites from "./views/favorites";
@@ -65,7 +65,7 @@ import "./css/responsive.css";
     get: getThemePref,
     set: (m: Parameters<typeof setThemePref>[0]) => { setThemePref(m); applyTheme(); },
   },
-  practice: { session: debugSession, exam: debugExam },
+  practice: { session: debugSession, exam: debugExam, typeSession: debugTypeSession },
   /** 应用名（e2e 断言标题口径用） */
   appName: APP_NAME,
 };
@@ -165,6 +165,7 @@ async function boot(): Promise<void> {
   register("banks", banks);
   register("general-practice", generalPractice);
   register("chapter-practice", chapterPractice);
+  register("type-practice", typePractice);
   register("practice", generalPractice);
   register("exam", exam);
   register("wrong-practice", wrongPractice);
